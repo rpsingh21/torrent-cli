@@ -9,22 +9,7 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 )
 
-type TFile struct {
-	Length int64
-	Path   string
-}
-
-type TorrentDetail struct {
-	Announce    string
-	InfoHash    [20]byte
-	PieceHashes [][20]byte
-	PieceLength int64
-	Length      int64
-	Name        string
-	Files       []TFile
-}
-
-func NewTorrentDetailFromFile(filePath string) (*TorrentDetail, error) {
+func NewTorrentDetailFromFile(filePath string) (*TorrentMetaInfo, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("Read torrent file: %w", err)
@@ -40,7 +25,7 @@ func NewTorrentDetailFromFile(filePath string) (*TorrentDetail, error) {
 		return nil, fmt.Errorf("Invalid torrent: root is not a dictionary")
 	}
 
-	torrent := &TorrentDetail{}
+	torrent := &TorrentMetaInfo{}
 
 	if announce, ok := root["announce"].([]byte); ok {
 		torrent.Announce = string(announce)
@@ -146,8 +131,7 @@ func bytesPathToString(path []any) string {
 func splitPieceHashes(pieces []byte) ([][20]byte, error) {
 	const pieceHashLen = 20
 	if len(pieces)%pieceHashLen != 0 {
-		return nil, fmt.Errorf(
-			"Malformed pieces: length %d is not divisible by %d",
+		return nil, fmt.Errorf("Malformed pieces: length %d is not divisible by %d",
 			len(pieces),
 			pieceHashLen,
 		)

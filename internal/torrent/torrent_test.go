@@ -1,6 +1,8 @@
 package torrent
 
 import (
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -13,20 +15,28 @@ func TestTorrentFile(t *testing.T) {
 	if err != nil || nt.Announce == "" {
 		t.Errorf("Ancounter error while decoding torrent file %v", err)
 	}
+	fmt.Println(hex.EncodeToString(nt.InfoHash[:]))
 }
 
 func TestSingleTorrentFile(t *testing.T) {
+	myPeerId := [20]byte{73, 158, 15, 108, 202, 74, 147, 78, 115, 126, 145, 49, 204, 11, 11, 39, 41, 16, 136, 183}
 	epath, _ := os.Getwd()
 	path := path.Join(epath, "../../testdata/torrents/singlefile.torrent")
 	nt, err := NewTorrentDetailFromFile(path)
 	if err != nil || nt.Announce == "" {
 		t.Errorf("Ancounter error while decoding torrent file %v", err)
 	}
+	if _, err := nt.BuildTrackerURL(myPeerId, "start"); err != nil {
+		t.Error("Fail to build tracker url", err)
+	}
+	if _, err := nt.BuildTrackerURL(myPeerId, ""); err != nil {
+		t.Error("Faild to build URL", err)
+	}
 }
 
-var benchmarkResult *TorrentDetail
+var benchmarkResult *TorrentMetaInfo
 
-func BenchmarkTorrentDetailsFromFile(b *testing.B) {
+func BenchmarkTorrentMetaInfoFromFile(b *testing.B) {
 	epath, err := os.Getwd()
 	if err != nil {
 		b.Fatal(err)
