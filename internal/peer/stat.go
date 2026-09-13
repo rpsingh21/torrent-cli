@@ -1,6 +1,6 @@
 package peer
 
-type PeerStat struct {
+type Stat struct {
 	DownloadRate      uint64 // bit/sec
 	UploadRate        uint64
 	RequestsSent      uint64

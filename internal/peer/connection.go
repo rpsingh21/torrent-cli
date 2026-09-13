@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-type PeerConnection struct {
+type Connection struct {
 	conn    net.Conn
 	reader  *bufio.Reader
 	writer  *bufio.Writer
@@ -18,10 +18,10 @@ type PeerConnection struct {
 	cancel  context.CancelFunc
 }
 
-func NewPeerConnection(parent context.Context, conn net.Conn) *PeerConnection {
+func NewConnection(parent context.Context, conn net.Conn) *Connection {
 	ctx, cancel := context.WithCancel(parent)
 
-	return &PeerConnection{
+	return &Connection{
 		conn:   conn,
 		reader: bufio.NewReader(conn),
 		writer: bufio.NewWriter(conn),
@@ -30,7 +30,7 @@ func NewPeerConnection(parent context.Context, conn net.Conn) *PeerConnection {
 	}
 }
 
-func (pc *PeerConnection) ReadMessage() (*Message, error) {
+func (pc *Connection) ReadMessage() (*Message, error) {
 	lengthBuf := make([]byte, 4)
 	if _, err := pc.reader.Read(lengthBuf); err != nil {
 		log.Printf("Fail to read message length, Error: %v\n", err)
@@ -55,7 +55,7 @@ func (pc *PeerConnection) ReadMessage() (*Message, error) {
 	return messgae, nil
 }
 
-func (pc *PeerConnection) WriteMessage(m *Message) error {
+func (pc *Connection) WriteMessage(m *Message) error {
 	if _, err := pc.conn.Write(m.EncodeMessage()); err != nil {
 		log.Printf("Message Write Failed, Message type: %v\n", m.String())
 		return err
@@ -63,6 +63,6 @@ func (pc *PeerConnection) WriteMessage(m *Message) error {
 	return nil
 }
 
-func (pc *PeerConnection) Close() (*Message, error) {
+func (pc *Connection) Close() (*Message, error) {
 	return nil, nil
 }

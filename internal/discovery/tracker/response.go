@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-type TrackerResponse struct {
+type Response struct {
 	Interval int
 	Peers    []peer
 }
@@ -16,7 +16,7 @@ type peer struct {
 	Port uint16
 }
 
-func UnmarshalTrackerResponse(data any) (*TrackerResponse, error) {
+func UnmarshalTrackerResponse(data any) (*Response, error) {
 	root, ok := data.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("Recived invalid data %T", root)
@@ -60,5 +60,5 @@ func UnmarshalTrackerResponse(data any) (*TrackerResponse, error) {
 		// peers[i].ID = unsafe.String(unsafe.SliceData(idBytes), len(idBytes))
 	}
 
-	return &TrackerResponse{int(interval), peers}, nil
+	return &Response{int(interval), peers}, nil
 }

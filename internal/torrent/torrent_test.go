@@ -34,7 +34,7 @@ func TestSingleTorrentFile(t *testing.T) {
 	}
 }
 
-var benchmarkResult *TorrentMetaInfo
+var benchmarkResult *MetaInfo
 
 func BenchmarkTorrentMetaInfoFromFile(b *testing.B) {
 	epath, err := os.Getwd()
@@ -80,6 +80,9 @@ func BenchmarkTorrentMetaInfoFromFile(b *testing.B) {
 					b.Fatal(err)
 				}
 
+				if result.TotalSize <= 0 {
+					b.Fatalf("Torrent total content size = %v", result.TotalSize)
+				}
 				benchmarkResult = result
 			}
 		})

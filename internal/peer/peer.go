@@ -14,13 +14,13 @@ type Peer struct {
 	// IP               string
 	// Port             uint16
 	// Addr             netip.AddrPort
-	Connection       *PeerConnection
+	Connection       *Connection
 	Choked           atomic.Bool
 	Interested       atomic.Bool
 	RemoteChoked     atomic.Bool
 	RemoteInterested atomic.Bool
 	Bitfield         *Bitfield
-	stat             *PeerStat
+	stat             *Stat
 	// Will imp
 	// Extensions PeerExtensions
 }
@@ -34,7 +34,7 @@ func NewPeer(myPeerId [20]byte, infoHash [20]byte, ID string, IP string, Port ui
 		log.Printf("Failed to create connection: %v\n", err)
 		return nil, err
 	}
-	peerConn := NewPeerConnection(ctx, conn)
+	peerConn := NewConnection(ctx, conn)
 	peer := &Peer{
 		ID:         ID,
 		Connection: peerConn,
