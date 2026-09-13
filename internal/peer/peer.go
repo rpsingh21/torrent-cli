@@ -10,10 +10,12 @@ import (
 )
 
 type Peer struct {
-	ID string
-	// IP               string
-	// Port             uint16
-	// Addr             netip.AddrPort
+	ID   string
+	IP   string
+	Port uint16
+	// Metainfo         *torrent.MetaInfo
+	InfoHash         [20]byte
+	MyPeerId         [20]byte
 	Connection       *Connection
 	Choked           atomic.Bool
 	Interested       atomic.Bool
@@ -25,29 +27,51 @@ type Peer struct {
 	// Extensions PeerExtensions
 }
 
-func NewPeer(myPeerId [20]byte, infoHash [20]byte, ID string, IP string, Port uint16) (*Peer, error) {
-	ctx := context.WithoutCancel(context.TODO())
-	address := fmt.Sprintf("%s:%d", IP, Port)
+// func NewPeer(id string, ip string, port uint16) *Peer {
+// 	return &Peer{
+// 		ID: ,
+// 	}
+// }
 
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
-	if err != nil {
-		log.Printf("Failed to create connection: %v\n", err)
-		return nil, err
-	}
-	peerConn := NewConnection(ctx, conn)
+func NewPeer(myPeerId [20]byte, infoHash [20]byte, Id string, IP string, Port uint16) *Peer {
+
 	peer := &Peer{
-		ID:         ID,
-		Connection: peerConn,
+		ID:               string(myPeerId[:]),
+		IP:               IP,
+		Port:             Port,
+		InfoHash:         infoHash,
+		MyPeerId:         myPeerId,
+		Bitfield:         nil,
+		Connection:       nil,
+		Choked:           atomic.Bool{},
+		Interested:       atomic.Bool{},
+		RemoteChoked:     atomic.Bool{},
+		RemoteInterested: atomic.Bool{},
+		stat:             &Stat{},
 	}
+	return peer
+}
 
-	handshake := NewHandshake(infoHash, myPeerId)
+func (p *Peer) Start() error {
+	ctx := context.WithoutCancel(context.TODO())
+	address := net.JoinHostPort(p.IP, fmt.Sprintf("%d", p.Port))
 
-	n, err := conn.Write(handshake.Encode())
+	conn, err := net.DialTimeout("tcp", address, 15*time.Second)
 	if err != nil {
-		log.Printf("Handshake Failed: %v", err)
-		return nil, err
+		log.Printf("Failed to create connection: %v", err)
+		return err
 	}
-	log.Printf("Handshake Successfully: %v", n)
 
-	return peer, err
+	p.Connection = NewConnection(ctx, conn, p.InfoHash, p.MyPeerId)
+	if err := p.Connection.Handshake(); err != nil {
+		return err
+	}
+	log.Printf("Ending without error %v", p.IP)
+	return nil
+}
+
+func (p *Peer) Close() {
+	if p.Connection != nil {
+		p.Connection.Close()
+	}
 }
