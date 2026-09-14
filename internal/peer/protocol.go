@@ -41,32 +41,71 @@ type Piece struct {
 	Data  []byte
 }
 
-// func ParseMessage(data []byte) (Message, error)
-
-func (m *Message) EncodeMessage() []byte {
-	// KeepLive message
-	if m == nil {
-		return make([]byte, 4)
+func ParseMessage(data []byte) (*Message, error) {
+	if len(data) == 0 {
+		return nil, nil
 	}
-	payloadLen := len(m.Payload)
-	buffer := make([]byte, 5+payloadLen)
-	binary.BigEndian.PutUint32(buffer[:4], uint32(payloadLen+1)) // 1 for message ID
-	buffer[4] = byte(m.ID)
-	return buffer
-
-	// For zero copy do like this
-	// w.Write(header)
-	// w.Write(payload)
+	id := MessageID(data[0])
+	if !id.valid() {
+		return nil, fmt.Errorf("unknown message ID: %d", id)
+	}
+	return &Message{
+		ID:      id,
+		Payload: data[1:],
+	}, nil
 }
 
-// func ParseRequest(payload []byte) (Request, error)
+func ParseRequest(payload []byte) (*Request, error) {
+	if len(payload) != 12 {
+		return nil, fmt.Errorf("invalid request payload length: got %d, want 12", len(payload))
+	}
+	return &Request{
+		Index:  binary.BigEndian.Uint32(payload[:4]),
+		Begin:  binary.BigEndian.Uint32(payload[4:8]),
+		Length: binary.BigEndian.Uint32(payload[8:12]),
+	}, nil
+}
 
-// func ParsePiece(payload []byte) (Piece, error)
+func ParsePiece(payload []byte) (*Piece, error) {
+	if len(payload) < 8 {
+		return nil, fmt.Errorf("invalid piece payload: length %d", len(payload))
+	}
+	return &Piece{
+		Index: binary.BigEndian.Uint32(payload[:4]),
+		Begin: binary.BigEndian.Uint32(payload[4:8]),
+		Data:  payload[8:],
+	}, nil
+}
+
+func (r *Request) Encode() []byte {
+	buffer := make([]byte, 12)
+	binary.BigEndian.PutUint32(buffer[:4], r.Index)
+	binary.BigEndian.PutUint32(buffer[4:8], r.Begin)
+	binary.BigEndian.PutUint32(buffer[8:], r.Length)
+	return buffer
+}
+
+func (m *Message) EncodeMessage() []byte {
+	if m == nil {
+		// Keep-alive message.
+		return make([]byte, 4)
+	}
+
+	payloadLen := len(m.Payload)
+	buffer := make([]byte, 5+payloadLen)
+
+	binary.BigEndian.PutUint32(buffer[:4], uint32(payloadLen+1))
+	buffer[4] = byte(m.ID)
+	copy(buffer[5:], m.Payload)
+
+	return buffer
+}
 
 func (m *Message) name() string {
 	if m == nil {
 		return "KeepAlive"
 	}
+
 	switch m.ID {
 	case MsgChoke:
 		return "Choke"
@@ -86,6 +125,16 @@ func (m *Message) name() string {
 		return "Piece"
 	case MsgCancel:
 		return "Cancel"
+	case MsgPort:
+		return "Port"
+	case MsgSuggest:
+		return "Suggest"
+	case MsgHaveAll:
+		return "HaveAll"
+	case MsgHaveNone:
+		return "HaveNone"
+	case MsgRejectRequest:
+		return "RejectRequest"
 	default:
 		return fmt.Sprintf("UnknownMessageId#%d", m.ID)
 	}
@@ -93,7 +142,12 @@ func (m *Message) name() string {
 
 func (m *Message) String() string {
 	if m == nil {
-		return m.name()
+		return "KeepAlive"
 	}
+
 	return fmt.Sprintf("%s [%d]", m.name(), len(m.Payload))
+}
+
+func (id MessageID) valid() bool {
+	return id <= MsgRejectRequest
 }

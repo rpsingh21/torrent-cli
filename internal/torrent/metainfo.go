@@ -10,7 +10,7 @@ type TFile struct {
 	Path   string
 }
 
-type TorrentMetaInfo struct {
+type MetaInfo struct {
 	Announce     string
 	AnnounceList []string
 	InfoHash     [20]byte
@@ -19,9 +19,11 @@ type TorrentMetaInfo struct {
 	Length       int64
 	Name         string
 	Files        []TFile
+	TotalSize    int64
+	TotalPices   int
 }
 
-func (tm *TorrentMetaInfo) BuildTrackerURL(peerId [20]byte, event string) (string, error) {
+func (tm *MetaInfo) BuildTrackerURL(peerId [20]byte, event string) (string, error) {
 	base, err := url.Parse(tm.Announce)
 	if err != nil {
 		return "", err

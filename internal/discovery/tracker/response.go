@@ -2,21 +2,16 @@ package tracker
 
 import (
 	"fmt"
+
+	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
-type TrackerResponse struct {
+type Response struct {
 	Interval int
-	Peers    []peer
+	Peers    []*peer.Peer
 }
 
-type peer struct {
-	ID [20]byte
-	// ID   string
-	IP   string
-	Port uint16
-}
-
-func UnmarshalTrackerResponse(data any) (*TrackerResponse, error) {
+func UnmarshalTrackerResponse(data any) (*Response, error) {
 	root, ok := data.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("Recived invalid data %T", root)
@@ -30,35 +25,35 @@ func UnmarshalTrackerResponse(data any) (*TrackerResponse, error) {
 		return nil, fmt.Errorf("Recived invalid peers data %T, %+v", root, root["peers"])
 	}
 
-	peers := make([]peer, len(peersArr))
-	// log.Printf("Got %d totals peers\n", len(peers))
+	peers := make([]*peer.Peer, len(peersArr))
+
 	for i, peerel := range peersArr {
 		peerMap, ok := peerel.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("Failed to convert peer tp map[string]: %+v", peerel)
+			return nil, fmt.Errorf("failed to convert peer to map[string]any: %+v", peerel)
 		}
-		// fmt.Printf("%d, peer data %+v\n", i, peerMap)
+
 		ipBytes, ok := peerMap["ip"].([]byte)
 		if !ok {
-			return nil, fmt.Errorf("Failed to convert peer ip: %+v", peerMap)
+			return nil, fmt.Errorf("failed to convert peer ip: %+v", peerMap)
 		}
-		peers[i].IP = string(ipBytes)
-		// peers[i].IP = unsafe.String(unsafe.SliceData(ipBytes), len(ipBytes))
-		// Don't use unfase because ip should be immutable
 
 		port, ok := peerMap["port"].(int64)
 		if !ok {
-			return nil, fmt.Errorf("Failed to convert port unit16: %+v", peerMap)
+			return nil, fmt.Errorf("failed to convert port: %+v", peerMap["port"])
 		}
-		peers[i].Port = uint16(port)
 
 		idBytes, ok := peerMap["peer id"].([]byte)
-		// if !ok {
-		// 	return nil, fmt.Errorf("Failed to convert peer id: %+v", peerMap["peer id"])
-		// }
-		copy(peers[i].ID[:], idBytes)
-		// peers[i].ID = unsafe.String(unsafe.SliceData(idBytes), len(idBytes))
+		if !ok {
+			return nil, fmt.Errorf("failed to convert peer id: %+v", peerMap["peer id"])
+		}
+
+		peers[i] = &peer.Peer{
+			IP:   string(ipBytes),
+			Port: uint16(port),
+			ID:   string(idBytes),
+		}
 	}
 
-	return &TrackerResponse{int(interval), peers}, nil
+	return &Response{int(interval), peers}, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 )
 
-func NewTorrentDetailFromFile(filePath string) (*TorrentMetaInfo, error) {
+func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("Read torrent file: %w", err)
@@ -25,7 +25,7 @@ func NewTorrentDetailFromFile(filePath string) (*TorrentMetaInfo, error) {
 		return nil, fmt.Errorf("Invalid torrent: root is not a dictionary")
 	}
 
-	torrent := &TorrentMetaInfo{}
+	torrent := &MetaInfo{}
 
 	if announce, ok := root["announce"].([]byte); ok {
 		torrent.Announce = string(announce)
@@ -62,20 +62,21 @@ func NewTorrentDetailFromFile(filePath string) (*TorrentMetaInfo, error) {
 		torrent.PieceHashes = hashes
 	}
 
-	torrent.Files = parseFiles(info, torrent.Length, torrent.Name)
+	torrent.Files, torrent.TotalSize = parseFiles(info, torrent.Length, torrent.Name)
 
 	return torrent, nil
 }
 
-func parseFiles(info map[string]any, length int64, name string) []TFile {
+func parseFiles(info map[string]any, length int64, name string) ([]TFile, int64) {
 	files, ok := info["files"].([]any)
+	var totalSize int64
 	if !ok {
 		return []TFile{
 			{
 				Length: length,
 				Path:   name,
 			},
-		}
+		}, length
 	}
 
 	result := make([]TFile, 0, len(files))
@@ -100,9 +101,10 @@ func parseFiles(info map[string]any, length int64, name string) []TFile {
 			Length: fileLength,
 			Path:   bytesPathToString(path),
 		})
+		totalSize += fileLength
 	}
 
-	return result
+	return result, totalSize
 }
 
 func bytesPathToString(path []any) string {

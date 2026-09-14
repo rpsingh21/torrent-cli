@@ -7,7 +7,7 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 )
 
-var result *TrackerResponse
+var result *Response
 
 func BenchmarkUnmarshalTrackerResponse(b *testing.B) {
 	body, err := os.ReadFile("httpbody.test.data")
