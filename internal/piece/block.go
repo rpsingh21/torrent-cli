@@ -1,5 +1,7 @@
 package piece
 
+import "time"
+
 type Block struct {
 	Piece     int
 	Offset    int
@@ -7,5 +9,5 @@ type Block struct {
 	Data      []byte
 	Requested bool
 	Completed bool
-	startedAt int64
+	startedAt time.Time
 }

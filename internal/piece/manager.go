@@ -2,7 +2,6 @@ package piece
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -10,142 +9,270 @@ import (
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
-// Todo: Load from config
 const (
-	REQUEST_SIZE = 16 * 1024
+	REQUEST_SIZE     = 16 * 1024
+	BLOCK_TIMEOUT    = 10 * time.Second
+	CLEANUP_INTERVAL = 10 * time.Second
 )
 
 type Manager struct {
-	ctx            context.Context
-	cancle         context.CancelFunc
-	Metainfo       *torrent.MetaInfo
-	Have           *bitfield.Bitfield
-	PeerBitfield   map[string]*bitfield.Bitfield
-	Pieces         []Piece
-	nextPieceMutex sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	Metainfo     *torrent.MetaInfo
+	Have         *bitfield.Bitfield
+	PeerBitfield map[string]*bitfield.Bitfield
+	Pieces       []*Piece
+	mu           sync.Mutex
 }
 
 func NewManager(ctx context.Context, meta *torrent.MetaInfo) *Manager {
-	ctx, cancle := context.WithCancel(ctx)
-	pieces := make([]Piece, len(meta.PieceHashes))
-	for i, ph := range meta.PieceHashes {
-		log.Printf("PieceSize : %v : %v", meta.PieceLength, meta.TotalSize-int64(i)*meta.PieceLength)
-		pieceSize := int(min(meta.PieceLength, meta.TotalSize-int64(i)*meta.PieceLength))
-		blocks := buildBuild(i, pieceSize)
-		pieces[i] = *NewPiece(i, pieceSize, ph, blocks)
+	ctx, cancel := context.WithCancel(ctx)
+
+	pieces := make([]*Piece, len(meta.PieceHashes))
+
+	for i, hash := range meta.PieceHashes {
+		remaining := meta.TotalSize - int64(i)*meta.PieceLength
+		pieceSize := int(min(meta.PieceLength, remaining))
+
+		pieces[i] = &Piece{
+			Index:  i,
+			Length: pieceSize,
+			HashV1: hash,
+			Blocks: buildBlocks(i, pieceSize),
+		}
 	}
 
 	m := &Manager{
+		ctx:          ctx,
+		cancel:       cancel,
 		Metainfo:     meta,
 		Have:         bitfield.NewBitfield(len(pieces)),
 		PeerBitfield: make(map[string]*bitfield.Bitfield),
 		Pieces:       pieces,
-		ctx:          ctx,
-		cancle:       cancle,
 	}
-	go m.cleanBlockedBlock()
+
+	go m.cleanBlockedBlocks()
 	return m
 }
 
-func buildBuild(pieceId int, pieceSize int) []Block {
-	totalBlock := (pieceSize + REQUEST_SIZE - 1) / REQUEST_SIZE
-	blocks := make([]Block, totalBlock)
-	for i := range totalBlock {
+func buildBlocks(pieceID, pieceSize int) []Block {
+	if pieceSize <= 0 {
+		return nil
+	}
+
+	totalBlocks := (pieceSize + REQUEST_SIZE - 1) / REQUEST_SIZE
+	blocks := make([]Block, totalBlocks)
+
+	for i := range blocks {
+		offset := i * REQUEST_SIZE
 		blocks[i] = Block{
-			Piece:  pieceId,
-			Offset: i * REQUEST_SIZE,
-			Length: min(REQUEST_SIZE, pieceSize-i*REQUEST_SIZE),
+			Piece:  pieceID,
+			Offset: offset,
+			Length: min(REQUEST_SIZE, pieceSize-offset),
 		}
 	}
+
 	return blocks
 }
 
-func (m *Manager) cleanBlockedBlock() {
-	ticker := time.NewTicker(5 * time.Second)
+func (m *Manager) cleanBlockedBlocks() {
+	ticker := time.NewTicker(CLEANUP_INTERVAL)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.ctx.Done():
-			log.Printf("Canclling manager block!")
+			// log.Printf("Cancelling manager block cleanup")
 			return
-		case t := <-ticker.C:
-			timeNow := time.Now().Unix()
-			log.Printf("%v: Tick from new manager at: %v, Name: %v", timeNow, t, m.Metainfo.Name)
-			for _, piece := range m.Pieces {
-				for _, block := range piece.Blocks {
-					if block.Data != nil &&
-						block.Requested &&
-						!block.Completed &&
-						timeNow-block.startedAt >= 10 {
-						// 10 seconds sufficient to download one block
-						// Todo configer from config
-						block.Requested = false
-						log.Printf("Timed out block: %+v", block)
-					}
-				}
-			}
+
+		case now := <-ticker.C:
+			m.mu.Lock()
+			m.cleanupExpiredBlocksLocked(now)
+			m.mu.Unlock()
 		}
 	}
 }
 
-func (m *Manager) AddPeerBitfield(peerId string, bf *bitfield.Bitfield) {
-	m.PeerBitfield[peerId] = bf
+// cleanupExpiredBlocksLocked resets requests that have been outstanding for
+// at least blockTimeout. Caller must hold m.mu.
+func (m *Manager) cleanupExpiredBlocksLocked(now time.Time) int {
+	cleaned := 0
+
+	for _, piece := range m.Pieces {
+		for i := range piece.Blocks {
+			block := &piece.Blocks[i]
+
+			if !block.Requested || block.Completed {
+				continue
+			}
+
+			if now.Sub(block.startedAt) < BLOCK_TIMEOUT {
+				continue
+			}
+
+			block.Requested = false
+			block.startedAt = time.Time{}
+			cleaned++
+		}
+	}
+
+	return cleaned
 }
 
-func (m *Manager) NextBlock(peerId string) *Block {
-	log.Printf("Accqured log for peedId %v", peerId)
-	m.nextPieceMutex.Lock()
-	defer m.nextPieceMutex.Unlock()
+func (m *Manager) cleanupExpiredBlocks(now time.Time) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	peerBF, ok := m.PeerBitfield[peerId]
-	if !ok || peerBF == nil {
-		log.Printf("Unknown peer: %v", peerId)
+	return m.cleanupExpiredBlocksLocked(now)
+}
+
+func (m *Manager) AddPeerBitfield(peerID string, bf *bitfield.Bitfield) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if bf == nil {
+		delete(m.PeerBitfield, peerID)
+		return
+	}
+
+	m.PeerBitfield[peerID] = bf
+}
+
+func (m *Manager) RemovePeer(peerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.PeerBitfield, peerID)
+}
+
+// NextBlock returns the next block that this peer can download.
+//
+// The peer must advertise that it has the piece. A returned block is marked
+// Requested before returning, so two concurrent callers cannot select the
+// same block.
+func (m *Manager) NextBlock(peerID string) *Block {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	peerBF := m.PeerBitfield[peerID]
+	if peerBF == nil {
 		return nil
 	}
 
 	for i, piece := range m.Pieces {
-		if m.PeerBitfield[peerId].Have(i) {
-			block := piece.NextMissingBlock()
-			if block != nil {
-				block.Requested = true
-				block.startedAt = time.Now().Unix()
-				return block
-			}
+		if !peerBF.Have(i) {
+			continue
 		}
+
+		block := piece.NextMissingBlock()
+		if block == nil {
+			continue
+		}
+
+		block.Requested = true
+		block.startedAt = time.Now()
+
+		return block
 	}
+
 	return nil
 }
 
-func (m *Manager) CompletePiece(index int) {
-	piece := m.Pieces[index]
-	if piece.Verify() {
-		m.Have.SetIndex(index)
-		piece.write()
-	} else {
-		log.Printf("Piece verification failed, %v", index)
-		m.reDownloadpiece(index)
+// CompleteBlock stores data received for a block.
+//
+// A block must have been requested. The data is copied so the caller may
+// safely reuse its network read buffer.
+func (m *Manager) CompleteBlock(pieceIndex, offset int, data []byte) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
+		return false
 	}
 
+	block := m.Pieces[pieceIndex].blockAt(offset)
+	if block == nil || !block.Requested || block.Completed {
+		return false
+	}
+
+	if len(data) != block.Length {
+		return false
+	}
+
+	block.Data = append(block.Data[:0], data...)
+	block.Completed = true
+	block.Requested = false
+	block.startedAt = time.Time{}
+
+	return true
+}
+
+func (m *Manager) CompletePiece(index int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if index < 0 || index >= len(m.Pieces) {
+		return false
+	}
+
+	piece := m.Pieces[index]
+
+	if !piece.Completed() {
+		return false
+	}
+
+	if !piece.Verify() {
+		m.resetPieceLocked(piece)
+		return false
+	}
+
+	m.Have.SetIndex(index)
+	return true
 }
 
 func (m *Manager) IsComplete(index int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if index < 0 || index >= len(m.Pieces) {
+		return false
+	}
+
 	return m.Pieces[index].Completed()
 }
 
 func (m *Manager) Completed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.Have.AllSet()
 }
 
-func (m *Manager) Close() {
-	if m.cancle != nil {
-		m.cancle()
+func (m *Manager) resetPieceLocked(piece *Piece) {
+	for i := range piece.Blocks {
+		block := &piece.Blocks[i]
+		block.Requested = false
+		block.Completed = false
+		block.startedAt = time.Time{}
+		block.Data = nil
 	}
+	m.Have.ClearIndex(piece.Index)
 }
 
-func (m *Manager) reDownloadpiece(index int) {
-	for _, b := range m.Pieces[index].Blocks {
-		b.Requested = false
-		b.Completed = false
-		b.Data = nil
+func (m *Manager) ReDownloadPiece(index int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if index < 0 || index >= len(m.Pieces) {
+		return false
+	}
+
+	m.resetPieceLocked(m.Pieces[index])
+	return true
+}
+
+func (m *Manager) Close() {
+	if m.cancel != nil {
+		m.cancel()
 	}
 }

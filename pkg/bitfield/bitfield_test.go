@@ -190,3 +190,25 @@ func TestBitfieldSetIndexBounds(t *testing.T) {
 		t.Error("Have(8) = true, want false")
 	}
 }
+
+func TestBitfieldClearIndex(t *testing.T) {
+	bf := NewBitfield(10)
+
+	bf.SetIndex(0)
+	bf.SetIndex(3)
+	bf.SetIndex(9)
+
+	if !bf.Have(0) || !bf.Have(3) || !bf.Have(9) {
+		t.Fatal("bits were not set")
+	}
+
+	bf.ClearIndex(3)
+
+	if bf.Have(3) {
+		t.Fatal("bit 3 should be cleared")
+	}
+
+	if !bf.Have(0) || !bf.Have(9) {
+		t.Fatal("clearing bit 3 affected another bit")
+	}
+}

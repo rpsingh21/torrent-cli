@@ -51,3 +51,14 @@ func (bf Bitfield) AllSet() bool {
 	mask := byte(0xff << (8 - remaining))
 	return bf.bits[fullBytes]&mask == mask
 }
+
+func (bf *Bitfield) ClearIndex(index int) {
+	if index < 0 || index >= bf.size {
+		return
+	}
+
+	byteIndex := index / 8
+	bitIndex := uint(7 - (index % 8))
+
+	bf.bits[byteIndex] &^= 1 << bitIndex
+}
