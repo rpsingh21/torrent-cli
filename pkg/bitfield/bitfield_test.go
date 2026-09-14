@@ -197,6 +197,7 @@ func TestBitfieldClearIndex(t *testing.T) {
 	bf.SetIndex(0)
 	bf.SetIndex(3)
 	bf.SetIndex(9)
+	bf.ClearIndex(10) //Index out of range
 
 	if !bf.Have(0) || !bf.Have(3) || !bf.Have(9) {
 		t.Fatal("bits were not set")

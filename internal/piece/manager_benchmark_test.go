@@ -32,7 +32,7 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			for range b.N {
+			for b.Loop() {
 				block := manager.NextBlock("peer")
 				if block == nil {
 					// Reset the selected piece so the benchmark can continue.
@@ -61,7 +61,7 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
+	for b.Loop() {
 		block := piece.NextMissingBlock()
 		if block == nil {
 			for i := range piece.Blocks {
@@ -79,7 +79,6 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 	}
 }
 
-// Avoid strconv.FormatInt in the benchmark loop/name construction dependency.
 func itoa(v int) string {
 	switch v {
 	case 100:
