@@ -1,10 +1,13 @@
 package piece
 
+import "time"
+
 type Block struct {
-	Piece     uint32
-	Offset    uint32
-	Length    uint32
-	data      []byte
-	requested bool
-	completed bool
+	Piece     int
+	Offset    int
+	Length    int
+	Data      []byte
+	Requested bool
+	Completed bool
+	startedAt time.Time
 }

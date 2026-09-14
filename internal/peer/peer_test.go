@@ -25,6 +25,7 @@ func TestCompleteHandshake(t *testing.T) {
 	for _, tf := range peers {
 		t.Run(tf.ip, func(t *testing.T) {
 			peer := NewPeer(myPeerId, infoHash, tf.ip, tf.ip, tf.port)
+
 			if err := peer.Start(); err != nil {
 				t.Fatal(err)
 			}

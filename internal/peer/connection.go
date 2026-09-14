@@ -8,31 +8,25 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 )
 
 type Connection struct {
-	conn   net.Conn
-	reader *bufio.Reader
-
-	writeMu sync.Mutex
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
 	remoteId string
-
+	conn     net.Conn
 	infoHash [20]byte
 	myPeerId [20]byte
+
+	reader *bufio.Reader
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, myPeerId [20]byte) *Connection {
 	ctx, cancel := context.WithCancel(parent)
 
 	return &Connection{
-		conn:   conn,
-		reader: bufio.NewReader(conn),
-		// writer:   bufio.NewWriter(conn),
+		conn:     conn,
+		reader:   bufio.NewReader(conn),
 		ctx:      ctx,
 		cancel:   cancel,
 		infoHash: infoHash,

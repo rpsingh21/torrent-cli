@@ -1,28 +1,19 @@
 package piece
 
-import (
-	"github.com/rpsingh21/torrent-cli/internal/peer"
-)
+// import "github.com/rpsingh21/torrent-cli/pkg/bitfield"
 
-type Picker struct {
-	Have  peer.Bitfield
-	Peers map[string]*peer.Peer
-}
-
-func NewPicker(totalPiece int) *Picker {
-	return &Picker{
-		Have: peer.NewBitfield(totalPiece),
-	}
-}
-
-// func (p *Picker) Pick(peer *peer.Peer) (int, bool) {
-
+// type Picker struct {
+// 	PeerPieces map[string]bitfield.Bitfield
+// 	Have       bitfield.Bitfield
+// 	pieces     []Piece
 // }
 
-func (p *Picker) Complete() bool {
-	return p.Have.AllSet()
-}
+// func NewPicker(totalPiece int) *Picker {
+// 	return &Picker{}
+// }
 
+// Will implement or use chatGPT to complete
+// func (p *Picker) Pick(peerId) *Block {}
 // func (p *Picker) rarestFirst()
 // func (p *Picker) sequential()
 // func (p *Picker) endGame()

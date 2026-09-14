@@ -1,55 +1,60 @@
 package piece
 
-import (
-	"bytes"
-	"crypto/sha1"
-)
+import "crypto/sha1"
 
 type Piece struct {
-	Index  uint32
-	Length uint32
+	Index  int
+	Length int
 	HashV1 [20]byte
 	Blocks []Block
 }
 
-func NewPiece(index uint32, length uint32, hashv1 [20]byte, blocks []Block) *Piece {
-	return &Piece{
-		Index:  index,
-		Length: length,
-		HashV1: hashv1,
-		Blocks: blocks,
-	}
-}
-
-func (p *Piece) MissingBlock() *Block {
+func (p *Piece) NextMissingBlock() *Block {
 	for i := range p.Blocks {
-		if !p.Blocks[i].requested && !p.Blocks[i].completed {
-			return &p.Blocks[i]
+		block := &p.Blocks[i]
+
+		if block.Completed || block.Requested {
+			continue
 		}
+
+		return block
 	}
+
 	return nil
 }
 
-// func (p *Piece) Received(begin int, data byte)
-
-func (p *Piece) Verify() bool {
-	h := sha1.New()
+func (p *Piece) blockAt(offset int) *Block {
 	for i := range p.Blocks {
-		block := &p.Blocks[i]
-		if !block.completed {
-			return false
+		if p.Blocks[i].Offset == offset {
+			return &p.Blocks[i]
 		}
-		h.Write(block.data)
 	}
 
-	return bytes.Equal(h.Sum(nil), p.HashV1[:])
+	return nil
 }
 
 func (p *Piece) Completed() bool {
 	for i := range p.Blocks {
-		if !p.Blocks[i].completed {
+		if !p.Blocks[i].Completed {
 			return false
 		}
 	}
-	return true
+
+	return len(p.Blocks) > 0
+}
+
+func (p *Piece) Verify() bool {
+	if len(p.Blocks) == 0 {
+		return false
+	}
+
+	data := make([]byte, 0, p.Length)
+	for i := range p.Blocks {
+		if !p.Blocks[i].Completed || len(p.Blocks[i].Data) != p.Blocks[i].Length {
+			return false
+		}
+		data = append(data, p.Blocks[i].Data...)
+	}
+
+	return sha1.Sum(data) == p.HashV1
 }

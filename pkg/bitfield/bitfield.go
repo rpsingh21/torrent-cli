@@ -1,12 +1,12 @@
-package peer
+package bitfield
 
 type Bitfield struct {
 	bits []byte
 	size int
 }
 
-func NewBitfield(size int) Bitfield {
-	return Bitfield{
+func NewBitfield(size int) *Bitfield {
+	return &Bitfield{
 		bits: make([]byte, (size+7)/8),
 		size: size,
 	}
@@ -50,4 +50,15 @@ func (bf Bitfield) AllSet() bool {
 	// Valid bits are the most-significant `remaining` bits.
 	mask := byte(0xff << (8 - remaining))
 	return bf.bits[fullBytes]&mask == mask
+}
+
+func (bf *Bitfield) ClearIndex(index int) {
+	if index < 0 || index >= bf.size {
+		return
+	}
+
+	byteIndex := index / 8
+	bitIndex := uint(7 - (index % 8))
+
+	bf.bits[byteIndex] &^= 1 << bitIndex
 }
