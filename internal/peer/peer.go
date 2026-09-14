@@ -23,6 +23,9 @@ type Peer struct {
 	RemoteInterested atomic.Bool
 	Bitfield         *Bitfield
 	stat             *Stat
+	// pieceManager     *piece.Manager
+	blockInprogres map[*Piece]struct{}
+	ctx            context.Context
 	// Will imp
 	// Extensions PeerExtensions
 }
@@ -62,16 +65,73 @@ func (p *Peer) Start() error {
 		return err
 	}
 
+	defer p.Close()
 	p.Connection = NewConnection(ctx, conn, p.InfoHash, p.MyPeerId)
 	if err := p.Connection.Handshake(); err != nil {
 		return err
 	}
-	log.Printf("Ending without error %v", p.IP)
+
+	if err := p.Connection.WriteMessage(&Message{ID: MsgInterested}); err != nil {
+		return err
+	}
+
+	log.Printf("Peer %v: Starting loop", address)
+	p.messageLoop()
 	return nil
 }
 
-func (p *Peer) Close() {
-	if p.Connection != nil {
-		p.Connection.Close()
+func (p *Peer) messageLoop() {
+
+	// Imp p.ctx.done for grassfull stop
+	for {
+		// Todo: maxBlockProgress load from config
+		// for !p.Choked.Load() && len(p.blockInprogres) < 1 {
+		// 	block := p.pieceManager.NextBlock(p)
+		// 	if block != nil {
+		// 		requestBlock := Request{block.Piece, block.Offset, block.Length}
+		// 		message := &Message{MsgRequest, requestBlock.Encode()}
+		// 		p.Connection.WriteMessage(message)
+		// 	}
+		// }
+		message, err := p.Connection.ReadMessage()
+		if err != nil {
+			log.Printf("%s: connection closed: %v", p.IP, err)
+			return
+		}
+		if message == nil {
+			log.Printf("%v Keep live", p.IP)
+			continue
+		}
+		switch message.ID {
+		case MsgChoke:
+			p.Choked.Store(true)
+		case MsgUnchoke:
+			p.Choked.Store(false)
+		case MsgBitfield:
+			// Update piece manager to SET peer bitfield
+			log.Printf("%v: Bitfiled %+v", p.IP, message)
+		case MsgHave:
+			// update have_piece
+			log.Printf("%v: Have piece %+v", p.IP, message)
+		case MsgPiece:
+			// Call Resived piece
+			log.Printf("%v: Message piece %+v", p.IP, message)
+		case MsgRequest:
+			log.Printf("%v: Get piece Request from peer %+v", p.IP, message)
+		case MsgCancel:
+			log.Printf("%v cancle", p.IP)
+		default:
+			log.Printf("%v, Default message %+v", p.IP, message)
+		}
 	}
+}
+
+func (p *Peer) Close() error {
+	if p.Connection == nil {
+		return nil
+	}
+
+	err := p.Connection.Close()
+	p.Connection = nil
+	return err
 }

@@ -23,9 +23,9 @@ type Manager struct {
 func NewManager(meta *torrent.MetaInfo) *Manager {
 	pieces := make([]Piece, len(meta.PieceHashes))
 	for i, ph := range meta.PieceHashes {
-		pieceSize := int(min(meta.PieceLength, meta.TotalSize-int64(i)*meta.PieceLength))
-		blocks := buildBuild(i, pieceSize)
-		pieces[i] = *NewPiece(i, int64(pieceSize), ph, blocks)
+		pieceSize := uint32(min(meta.PieceLength, meta.TotalSize-int64(i)*meta.PieceLength))
+		blocks := buildBuild(uint32(i), pieceSize)
+		pieces[i] = *NewPiece(uint32(i), uint32(pieceSize), ph, blocks)
 	}
 	picker := NewPicker(len(meta.PieceHashes))
 
@@ -36,13 +36,13 @@ func NewManager(meta *torrent.MetaInfo) *Manager {
 	}
 }
 
-func buildBuild(pieceId int, pieceSize int) []Block {
+func buildBuild(pieceId uint32, pieceSize uint32) []Block {
 	totalBlock := (pieceSize + REQUEST_SIZE - 1) / REQUEST_SIZE
 	blocks := make([]Block, totalBlock)
 	for i := range totalBlock {
 		blocks[i] = Block{
 			Piece:  pieceId,
-			offset: i * REQUEST_SIZE,
+			Offset: uint32(i) * REQUEST_SIZE,
 			Length: min(REQUEST_SIZE, pieceSize-i*REQUEST_SIZE),
 		}
 	}
@@ -100,6 +100,8 @@ func (m *Manager) writePiece(piece *Piece) {
 
 // func (m *Manager) IsComplete(index int) bool
 
-// func (m *Manager) Completed() int
+func (m *Manager) Completed() bool {
+	return false
+}
 
 // func (m *Manager) Progress() float64

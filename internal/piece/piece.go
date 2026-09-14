@@ -6,13 +6,13 @@ import (
 )
 
 type Piece struct {
-	Index  int
-	Length int64
+	Index  uint32
+	Length uint32
 	HashV1 [20]byte
 	Blocks []Block
 }
 
-func NewPiece(index int, length int64, hashv1 [20]byte, blocks []Block) *Piece {
+func NewPiece(index uint32, length uint32, hashv1 [20]byte, blocks []Block) *Piece {
 	return &Piece{
 		Index:  index,
 		Length: length,

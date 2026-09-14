@@ -77,6 +77,14 @@ func ParsePiece(payload []byte) (*Piece, error) {
 	}, nil
 }
 
+func (r *Request) Encode() []byte {
+	buffer := make([]byte, 12)
+	binary.BigEndian.PutUint32(buffer[:4], r.Index)
+	binary.BigEndian.PutUint32(buffer[4:8], r.Begin)
+	binary.BigEndian.PutUint32(buffer[8:], r.Length)
+	return buffer
+}
+
 func (m *Message) EncodeMessage() []byte {
 	if m == nil {
 		// Keep-alive message.

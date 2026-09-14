@@ -1,10 +1,5 @@
 package peer
 
-import (
-	"log"
-	"time"
-)
-
 type Manager struct {
 	activePeer map[string]*Peer
 	peerChan   chan []Peer
@@ -22,16 +17,16 @@ func NewManager(infoHash, myid [20]byte) *Manager {
 }
 
 func (m *Manager) Run() {
-	tiker := time.NewTicker(5 * time.Second)
-	go func() {
-		for t := range tiker.C {
-			log.Println("Tiker at ", t)
-			for key := range m.activePeer {
-				log.Println("Peer ", m.activePeer[key].ID)
-				// if m.activePeer[key].Connection.conn.
-			}
-		}
-	}()
+	// tiker := time.NewTicker(5 * time.Second)
+	// go func() {
+	// 	for t := range tiker.C {
+	// 		log.Println("Tiker at ", t)
+	// 		for key := range m.activePeer {
+	// 			log.Println("Peer ", m.activePeer[key].ID)
+	// 			// if m.activePeer[key].Connection.conn.
+	// 		}
+	// 	}
+	// }()
 }
 
 func (m *Manager) AddPeers(peers []*Peer) {

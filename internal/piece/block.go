@@ -1,9 +1,9 @@
 package piece
 
 type Block struct {
-	Piece     int
-	offset    int
-	Length    int
+	Piece     uint32
+	Offset    uint32
+	Length    uint32
 	data      []byte
 	requested bool
 	completed bool
