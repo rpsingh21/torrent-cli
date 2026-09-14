@@ -21,7 +21,6 @@ type Peer struct {
 	Interested       atomic.Bool
 	RemoteChoked     atomic.Bool
 	RemoteInterested atomic.Bool
-	Bitfield         *Bitfield
 	stat             *Stat
 	// pieceManager     *piece.Manager
 	blockInprogres map[*Piece]struct{}
@@ -44,7 +43,6 @@ func NewPeer(myPeerId [20]byte, infoHash [20]byte, Id string, IP string, Port ui
 		Port:             Port,
 		InfoHash:         infoHash,
 		MyPeerId:         myPeerId,
-		Bitfield:         nil,
 		Connection:       nil,
 		Choked:           atomic.Bool{},
 		Interested:       atomic.Bool{},

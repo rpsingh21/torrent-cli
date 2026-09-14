@@ -1,5 +1,12 @@
 package peer
 
+// Load from config
+const (
+	MAX_PEERS         = 80
+	REQUESTS_PER_PEER = 32
+	REQUEST_TIMEOUT   = 15
+)
+
 type Manager struct {
 	activePeer map[string]*Peer
 	peerChan   chan []Peer

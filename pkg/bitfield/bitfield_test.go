@@ -1,4 +1,4 @@
-package peer
+package bitfield
 
 import (
 	"math/rand/v2"

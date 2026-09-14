@@ -1,12 +1,12 @@
-package peer
+package bitfield
 
 type Bitfield struct {
 	bits []byte
 	size int
 }
 
-func NewBitfield(size int) Bitfield {
-	return Bitfield{
+func NewBitfield(size int) *Bitfield {
+	return &Bitfield{
 		bits: make([]byte, (size+7)/8),
 		size: size,
 	}

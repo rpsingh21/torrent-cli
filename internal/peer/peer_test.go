@@ -3,6 +3,7 @@ package peer
 import (
 	"log"
 	"testing"
+	"time"
 )
 
 func TestCompleteHandshake(t *testing.T) {
@@ -25,6 +26,13 @@ func TestCompleteHandshake(t *testing.T) {
 	for _, tf := range peers {
 		t.Run(tf.ip, func(t *testing.T) {
 			peer := NewPeer(myPeerId, infoHash, tf.ip, tf.ip, tf.port)
+			time := time.NewTimer(5 * time.Second)
+			go func() {
+				<-time.C
+				log.Printf("Peer timeout %v", tf.ip)
+				peer.Close()
+			}()
+
 			if err := peer.Start(); err != nil {
 				t.Fatal(err)
 			}
