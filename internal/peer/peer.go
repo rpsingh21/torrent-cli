@@ -74,7 +74,7 @@ func (p *Peer) Start() error {
 	}
 
 	log.Printf("Peer %v: Starting loop", address)
-	p.messageLoop()
+	go p.messageLoop()
 	return nil
 }
 

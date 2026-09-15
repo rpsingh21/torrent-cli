@@ -64,7 +64,6 @@ func benchmarkRoundTrip(b *testing.B, filename string) {
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(data)))
-	b.ResetTimer()
 
 	for b.Loop() {
 		decoded, err := NewDecoder(data).Decode()

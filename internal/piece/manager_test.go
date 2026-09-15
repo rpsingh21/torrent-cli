@@ -11,6 +11,20 @@ import (
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
+var strategies = []struct {
+	name     string
+	strategy PickStrategy
+}{
+	{
+		name:     "Sequential",
+		strategy: StrategySequential,
+	},
+	{
+		name:     "RarestFirst",
+		strategy: StrategyRarestFirst,
+	},
+}
+
 func testMetaInfo() *torrent.MetaInfo {
 	hashes := make([][20]byte, 9)
 
@@ -80,196 +94,246 @@ func TestBuildBlocks(t *testing.T) {
 }
 
 func TestManagerNextBlock(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	manager.AddPeerBitfield("test1", peerWithPiece(3))
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(),
+				tt.strategy,
+			)
+			defer manager.Close()
 
-	b1 := manager.NextBlock("test1")
-	if b1 == nil {
-		t.Fatal("b1 should not be nil")
-	}
+			manager.AddPeer("test1", peerWithPiece(3))
 
-	if b1.Piece != 3 {
-		t.Fatalf("piece = %d, want 3", b1.Piece)
-	}
+			b1 := manager.NextBlock("test1")
+			if b1 == nil {
+				t.Fatal("b1 should not be nil")
+			}
 
-	if !b1.Requested || b1.Completed {
-		t.Fatalf("unexpected block state: %+v", b1)
-	}
+			if b1.Piece != 3 {
+				t.Fatalf("piece = %d, want 3", b1.Piece)
+			}
 
-	// Unknown peer must not panic and must return nil.
-	if b2 := manager.NextBlock("test2"); b2 != nil {
-		t.Fatalf("unknown peer returned block: %+v", b2)
-	}
+			if !b1.Requested || b1.Completed {
+				t.Fatalf("unexpected block state: %+v", b1)
+			}
 
-	// Same peer gets the next block, not the same requested block.
-	b2 := manager.NextBlock("test1")
-	if b2 == nil {
-		t.Fatal("second block should not be nil")
-	}
+			// Unknown peer must not panic and must return nil.
+			if b2 := manager.NextBlock("test2"); b2 != nil {
+				t.Fatalf("unknown peer returned block: %+v", b2)
+			}
 
-	if b2.Offset == b1.Offset {
-		t.Fatalf("same block returned twice: b1=%+v b2=%+v", b1, b2)
+			// Same peer gets the next block, not the same requested block.
+			b2 := manager.NextBlock("test1")
+			if b2 == nil {
+				t.Fatal("second block should not be nil")
+			}
+
+			if b2.Offset == b1.Offset {
+				t.Fatalf("same block returned twice: b1=%+v b2=%+v", b1, b2)
+			}
+		})
 	}
 }
 
 func TestManagerCleanupExpiredBlocks(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	manager.AddPeerBitfield("peer", peerWithPiece(0))
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(), tt.strategy,
+			)
+			defer manager.Close()
 
-	block := manager.NextBlock("peer")
-	if block == nil {
-		t.Fatal("expected block")
-	}
+			manager.AddPeer("peer", peerWithPiece(0))
 
-	start := block.startedAt
+			block := manager.NextBlock("peer")
+			if block == nil {
+				t.Fatal("expected block")
+			}
 
-	// Not expired yet.
-	cleaned := manager.cleanupExpiredBlocks(start.Add(BLOCK_TIMEOUT - time.Nanosecond))
-	if cleaned != 0 {
-		t.Fatalf("cleaned %d blocks before timeout", cleaned)
-	}
+			start := block.startedAt
 
-	if !block.Requested {
-		t.Fatal("block was reset before timeout")
-	}
+			// Not expired yet.
+			cleaned := manager.cleanupExpiredBlocks(start.Add(BLOCK_TIMEOUT - time.Nanosecond))
+			if cleaned != 0 {
+				t.Fatalf("cleaned %d blocks before timeout", cleaned)
+			}
 
-	// Expired.
-	cleaned = manager.cleanupExpiredBlocks(start.Add(BLOCK_TIMEOUT))
-	if cleaned != 1 {
-		t.Fatalf("cleaned %d blocks, want 1", cleaned)
-	}
+			if !block.Requested {
+				t.Fatal("block was reset before timeout")
+			}
 
-	if block.Requested {
-		t.Fatal("expired block should no longer be requested")
+			// Expired.
+			cleaned = manager.cleanupExpiredBlocks(start.Add(BLOCK_TIMEOUT))
+			if cleaned != 1 {
+				t.Fatalf("cleaned %d blocks, want 1", cleaned)
+			}
+
+			if block.Requested {
+				t.Fatal("expired block should no longer be requested")
+			}
+		})
 	}
 }
 
 func TestManagerCompleteBlock(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	data := bytes.Repeat([]byte("A"), REQUEST_SIZE)
-	hash := sha1.Sum(data)
-	manager.Pieces[0].HashV1 = hash
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(), tt.strategy,
+			)
+			defer manager.Close()
 
-	manager.AddPeerBitfield("peer", peerWithPiece(0))
+			data := bytes.Repeat([]byte("A"), REQUEST_SIZE)
+			hash := sha1.Sum(data)
+			manager.Pieces[0].HashV1 = hash
 
-	block := manager.NextBlock("peer")
-	if block == nil {
-		t.Fatal("expected block")
-	}
+			manager.AddPeer("peer", peerWithPiece(0))
 
-	if !manager.CompleteBlock(0, block.Offset, data) {
-		t.Fatal("CompleteBlock should succeed")
-	}
+			block := manager.NextBlock("peer")
+			if block == nil {
+				t.Fatal("expected block")
+			}
 
-	if !block.Completed {
-		t.Fatal("block should be completed")
-	}
+			if !manager.CompleteBlock(0, block.Offset, data) {
+				t.Fatal("CompleteBlock should succeed")
+			}
 
-	if block.Requested {
-		t.Fatal("completed block should not remain requested")
-	}
+			if !block.Completed {
+				t.Fatal("block should be completed")
+			}
 
-	if !bytes.Equal(block.Data, data) {
-		t.Fatal("block data mismatch")
+			if block.Requested {
+				t.Fatal("completed block should not remain requested")
+			}
+
+			if !bytes.Equal(block.Data, data) {
+				t.Fatal("block data mismatch")
+			}
+		})
 	}
 }
 
 func TestManagerCompletePiece(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
 
-	// Use a small custom piece so the test does not need 128 KiB of data.
-	data := []byte("hello torrent")
-	hash := sha1.Sum(data)
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	manager.Pieces[0].Length = len(data)
-	manager.Pieces[0].HashV1 = hash
-	manager.Pieces[0].Blocks = []Block{
-		{
-			Piece:  0,
-			Offset: 0,
-			Length: len(data),
-		},
-	}
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(), tt.strategy,
+			)
+			defer manager.Close()
 
-	manager.AddPeerBitfield("peer", peerWithPiece(0))
+			// Use a small custom piece so the test does not need 128 KiB of data.
+			data := []byte("hello torrent")
+			hash := sha1.Sum(data)
 
-	block := manager.NextBlock("peer")
-	if block == nil {
-		t.Fatal("expected block")
-	}
+			manager.Pieces[0].Length = len(data)
+			manager.Pieces[0].HashV1 = hash
+			manager.Pieces[0].Blocks = []Block{
+				{
+					Piece:  0,
+					Offset: 0,
+					Length: len(data),
+				},
+			}
 
-	if !manager.CompleteBlock(0, 0, data) {
-		t.Fatal("CompleteBlock should succeed")
-	}
+			manager.AddPeer("peer", peerWithPiece(0))
 
-	if !manager.CompletePiece(0) {
-		t.Fatal("CompletePiece should succeed")
-	}
+			block := manager.NextBlock("peer")
+			if block == nil {
+				t.Fatal("expected block")
+			}
 
-	if !manager.IsComplete(0) {
-		t.Fatal("piece should be complete")
-	}
+			if !manager.CompleteBlock(0, 0, data) {
+				t.Fatal("CompleteBlock should succeed")
+			}
 
-	if !manager.Have.Have(0) {
-		t.Fatal("manager Have bitfield should contain piece 0")
+			if !manager.CompletePiece(0) {
+				t.Fatal("CompletePiece should succeed")
+			}
+
+			if !manager.IsComplete(0) {
+				t.Fatal("piece should be complete")
+			}
+
+			if !manager.Have.Have(0) {
+				t.Fatal("manager Have bitfield should contain piece 0")
+			}
+		})
 	}
 }
 
 func TestManagerReDownloadPiece(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	manager.AddPeerBitfield("peer", peerWithPiece(0))
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(), tt.strategy,
+			)
+			defer manager.Close()
 
-	block := manager.NextBlock("peer")
-	if block == nil {
-		t.Fatal("expected block")
-	}
+			manager.AddPeer("peer", peerWithPiece(0))
 
-	block.Data = []byte("bad")
-	block.Completed = true
+			block := manager.NextBlock("peer")
+			if block == nil {
+				t.Fatal("expected block")
+			}
 
-	if !manager.ReDownloadPiece(0) {
-		t.Fatal("ReDownloadPiece should succeed")
-	}
+			block.Data = []byte("bad")
+			block.Completed = true
 
-	if block.Requested || block.Completed || block.Data != nil {
-		t.Fatalf("block was not reset: %+v", block)
+			if !manager.ReDownloadPiece(0) {
+				t.Fatal("ReDownloadPiece should succeed")
+			}
+
+			if block.Requested || block.Completed || block.Data != nil {
+				t.Fatalf("block was not reset: %+v", block)
+			}
+		})
 	}
 }
 
 func TestManagerConcurrentNextBlock(t *testing.T) {
-	manager := NewManager(context.Background(), testMetaInfo())
-	defer manager.Close()
+	for _, tt := range strategies {
+		t.Run(tt.name, func(t *testing.T) {
 
-	manager.AddPeerBitfield("peer", peerWithPiece(0))
+			manager := NewManager(
+				context.Background(),
+				testMetaInfo(), tt.strategy,
+			)
+			defer manager.Close()
 
-	const callers = 8
-	results := make(chan *Block, callers)
+			manager.AddPeer("peer", peerWithPiece(0))
 
-	for range callers {
-		go func() {
-			results <- manager.NextBlock("peer")
-		}()
-	}
+			const callers = 8
+			results := make(chan *Block, callers)
 
-	seen := make(map[int]bool)
-	for range callers {
-		block := <-results
-		if block == nil {
-			t.Fatal("unexpected nil block")
-		}
+			for range callers {
+				go func() {
+					results <- manager.NextBlock("peer")
+				}()
+			}
 
-		if seen[block.Offset] {
-			t.Fatalf("duplicate block returned at offset %d", block.Offset)
-		}
-		seen[block.Offset] = true
+			seen := make(map[int]bool)
+			for range callers {
+				block := <-results
+				if block == nil {
+					t.Fatal("unexpected nil block")
+				}
+
+				if seen[block.Offset] {
+					t.Fatalf("duplicate block returned at offset %d", block.Offset)
+				}
+				seen[block.Offset] = true
+			}
+		})
 	}
 }

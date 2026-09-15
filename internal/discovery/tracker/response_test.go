@@ -10,7 +10,7 @@ import (
 var result *Response
 
 func BenchmarkUnmarshalTrackerResponse(b *testing.B) {
-	body, err := os.ReadFile("httpbody.test.data")
+	body, err := os.ReadFile("testdata/metadata/httpbody.test.data")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -22,6 +22,7 @@ func BenchmarkUnmarshalTrackerResponse(b *testing.B) {
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(body)))
+
 	for b.Loop() {
 		unData, err := UnmarshalTrackerResponse(decodeData)
 		if err != nil {
