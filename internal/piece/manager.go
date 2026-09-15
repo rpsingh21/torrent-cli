@@ -20,12 +20,19 @@ type Manager struct {
 	cancel       context.CancelFunc
 	Metainfo     *torrent.MetaInfo
 	Have         *bitfield.Bitfield
-	PeerBitfield map[string]*bitfield.Bitfield
 	Pieces       []*Piece
+	Availability []uint32
+	PeerPieces   map[string]*bitfield.Bitfield
+	Strategy     PickStrategy
+	next         int
 	mu           sync.Mutex
 }
 
-func NewManager(ctx context.Context, meta *torrent.MetaInfo) *Manager {
+func NewManager(
+	ctx context.Context,
+	meta *torrent.MetaInfo,
+	strategy PickStrategy,
+) *Manager {
 	ctx, cancel := context.WithCancel(ctx)
 
 	pieces := make([]*Piece, len(meta.PieceHashes))
@@ -47,8 +54,10 @@ func NewManager(ctx context.Context, meta *torrent.MetaInfo) *Manager {
 		cancel:       cancel,
 		Metainfo:     meta,
 		Have:         bitfield.NewBitfield(len(pieces)),
-		PeerBitfield: make(map[string]*bitfield.Bitfield),
+		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Pieces:       pieces,
+		Strategy:     strategy,
+		Availability: make([]uint32, len(meta.PieceHashes)),
 	}
 
 	go m.cleanBlockedBlocks()
@@ -94,7 +103,7 @@ func (m *Manager) cleanBlockedBlocks() {
 }
 
 // cleanupExpiredBlocksLocked resets requests that have been outstanding for
-// at least blockTimeout. Caller must hold m.mu.
+// Todo implement via queue
 func (m *Manager) cleanupExpiredBlocksLocked(now time.Time) int {
 	cleaned := 0
 
@@ -126,24 +135,24 @@ func (m *Manager) cleanupExpiredBlocks(now time.Time) int {
 	return m.cleanupExpiredBlocksLocked(now)
 }
 
-func (m *Manager) AddPeerBitfield(peerID string, bf *bitfield.Bitfield) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// func (m *Manager) AddPeerBitfield(peerID string, bf *bitfield.Bitfield) {
+// 	m.mu.Lock()
+// 	defer m.mu.Unlock()
 
-	if bf == nil {
-		delete(m.PeerBitfield, peerID)
-		return
-	}
+// 	if bf == nil {
+// 		delete(m.PeerBitfield, peerID)
+// 		return
+// 	}
 
-	m.PeerBitfield[peerID] = bf
-}
+// 	m.PeerBitfield[peerID] = bf
+// }
 
-func (m *Manager) RemovePeer(peerID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// func (m *Manager) RemovePeer(peerID string) {
+// 	m.mu.Lock()
+// 	defer m.mu.Unlock()
 
-	delete(m.PeerBitfield, peerID)
-}
+// 	delete(m.PeerBitfield, peerID)
+// }
 
 // NextBlock returns the next block that this peer can download.
 //
@@ -154,28 +163,35 @@ func (m *Manager) NextBlock(peerID string) *Block {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	peerBF := m.PeerBitfield[peerID]
-	if peerBF == nil {
+	pieceIndex := m.Pick(peerID)
+
+	// Pick return -1 if index out of range
+	if pieceIndex < 0 {
 		return nil
 	}
 
-	for i, piece := range m.Pieces {
-		if !peerBF.Have(i) {
-			continue
-		}
+	block := m.Pieces[pieceIndex].NextMissingBlock()
 
-		block := piece.NextMissingBlock()
-		if block == nil {
-			continue
-		}
+	// peerBF := m.PeerBitfield[peerID]
+	// if peerBF == nil {
+	// 	return nil
+	// }
 
-		block.Requested = true
-		block.startedAt = time.Now()
+	// for i, piece := range m.Pieces {
+	// 	if !peerBF.Have(i) {
+	// 		continue
+	// 	}
 
-		return block
-	}
+	// 	block := piece.NextMissingBlock()
+	// 	if block == nil {
+	// 		continue
+	// 	}
 
-	return nil
+	block.Requested = true
+	block.startedAt = time.Now()
+
+	return block
+
 }
 
 // CompleteBlock stores data received for a block.

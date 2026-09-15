@@ -2,6 +2,7 @@ package piece
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
@@ -19,34 +20,86 @@ func benchmarkMetaInfo(pieceCount int) *torrent.MetaInfo {
 	}
 }
 
+func peerWith10CentBits(pieceCount int) *bitfield.Bitfield {
+	peerBf := bitfield.NewBitfield(pieceCount)
+	peerBf.SetIndex(0)
+	for i := 9; i < pieceCount; i += 10 {
+		peerBf.SetIndex(i)
+	}
+	return peerBf
+}
+
 func BenchmarkManagerNextBlock(b *testing.B) {
-	for _, pieceCount := range []int{100, 1000, 10000} {
-		b.Run("pieces_"+itoa(pieceCount), func(b *testing.B) {
-			manager := NewManager(context.Background(), benchmarkMetaInfo(pieceCount))
-			defer manager.Close()
+	for _, st := range strategies {
+		for _, pieceCount := range []int{100, 1000, 10000, 100000} {
+			testName := fmt.Sprintf("pieces_%v_%d", st.name, pieceCount)
 
-			bf := bitfield.NewBitfield(pieceCount)
-			bf.SetIndex(pieceCount - 1)
-			manager.AddPeerBitfield("peer", bf)
+			b.Run(testName, func(b *testing.B) {
 
-			b.ReportAllocs()
+				manager := NewManager(
+					context.Background(),
+					benchmarkMetaInfo(pieceCount),
+					st.strategy,
+				)
+				defer manager.Close()
 
-			for b.Loop() {
-				block := manager.NextBlock("peer")
-				if block == nil {
-					// Reset the selected piece so the benchmark can continue.
-					manager.ReDownloadPiece(pieceCount - 1)
-					block = manager.NextBlock("peer")
+				bf := bitfield.NewBitfield(pieceCount)
+				bf.SetIndex(pieceCount - 1)
+				manager.AddPeer("peer", bf)
+
+				b.ReportAllocs()
+
+				for b.Loop() {
+					block := manager.NextBlock("peer")
+					if block == nil {
+						// Reset the selected piece so the benchmark can continue.
+						manager.ReDownloadPiece(pieceCount - 1)
+						block = manager.NextBlock("peer")
+					}
+
+					if block == nil {
+						b.Fatal("NextBlock returned nil")
+					}
+
+					// Reuse the same piece for the next iteration.
+					block.Requested = false
 				}
+			})
+		}
+	}
+}
 
-				if block == nil {
-					b.Fatal("NextBlock returned nil")
+func BenchmarkManager10Cent(b *testing.B) {
+	for _, st := range strategies {
+
+		for _, pieceCount := range []int{100, 1000, 10000, 100000} {
+			testName := fmt.Sprintf("pieces_10C_%v_%d", st.name, pieceCount*10)
+
+			b.Run(testName, func(b *testing.B) {
+				manager := NewManager(
+					context.Background(),
+					benchmarkMetaInfo(pieceCount),
+					st.strategy,
+				)
+				defer manager.Close()
+
+				bf := peerWith10CentBits(pieceCount * 10)
+				manager.AddPeer("peer", bf)
+
+				b.ReportAllocs()
+
+				for b.Loop() {
+					block := manager.NextBlock("peer")
+
+					if block == nil {
+						b.Fatal("NextBlock returned nil")
+					}
+
+					// Reuse the same piece for the next iteration.
+					block.Requested = false
 				}
-
-				// Reuse the same piece for the next iteration.
-				block.Requested = false
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -74,18 +127,5 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 		}
 
 		block.Requested = true
-	}
-}
-
-func itoa(v int) string {
-	switch v {
-	case 100:
-		return "100"
-	case 1000:
-		return "1000"
-	case 10000:
-		return "10000"
-	default:
-		return "unknown"
 	}
 }
