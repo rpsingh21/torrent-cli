@@ -17,12 +17,14 @@ func TestTracker(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		path string
+		name     string
+		path     string
+		errorExp bool
 	}{
 		{
-			name: "MultiFiles",
-			path: path.Join(epath, "../../../testdata/torrents/test.torrent"),
+			name:     "MultiFiles",
+			path:     path.Join(epath, "../../../testdata/torrents/test.torrent"),
+			errorExp: false,
 		},
 		// {
 		// 	name: "Ubuntu",
@@ -32,10 +34,11 @@ func TestTracker(t *testing.T) {
 		// 	name: "SingleFile",
 		// 	path: path.Join(epath, "../../../testdata/torrents/singlefile.torrent"),
 		// },
-		// {
-		// 	name: "Arch",
-		// 	path: path.Join(epath, "../../../testdata/torrents/archlinux-2026.09.01.torrent"),
-		// },
+		{
+			name:     "Arch",
+			path:     path.Join(epath, "../../../testdata/torrents/archlinux-2026.09.01.torrent"),
+			errorExp: true,
+		},
 	}
 
 	for _, tf := range tests {
@@ -46,13 +49,15 @@ func TestTracker(t *testing.T) {
 			}
 			tracker := NewTracker(metaInfo)
 			tarckerResp, err := tracker.RequestPeers("started")
-			if err != nil {
+			if tf.errorExp != (err != nil) {
 				fmt.Printf("Error => %+v\n", err)
 				t.Fatal(err)
 			}
 			log.Printf("My PeerId %+v", tracker.PeerId)
 			log.Printf("InfoHash %+v", metaInfo.InfoHash)
-			log.Printf("TrackerResponse = %+v", tarckerResp)
+			if !tf.errorExp {
+				log.Printf("TrackerResponse = %+v", tarckerResp)
+			}
 		})
 	}
 }

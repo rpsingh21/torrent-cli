@@ -30,7 +30,6 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 			manager.AddPeerBitfield("peer", bf)
 
 			b.ReportAllocs()
-			b.ResetTimer()
 
 			for b.Loop() {
 				block := manager.NextBlock("peer")
@@ -59,7 +58,6 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	b.ResetTimer()
 
 	for b.Loop() {
 		block := piece.NextMissingBlock()
