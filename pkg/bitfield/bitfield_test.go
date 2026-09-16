@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-func getSetBit(size int, b *testing.B) map[int]any {
-	b.Helper()
+func getSetBit(size int) map[int]any {
 	setIdx := make(map[int]any, 10000)
 	for range 10000 {
 		n := rand.IntN(size) // [0, 100000]
@@ -15,9 +14,30 @@ func getSetBit(size int, b *testing.B) map[int]any {
 	return setIdx
 }
 
+func BenchmarkSetSingle(b *testing.B) {
+	bf := NewBitfield(100_000)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		bf.SetIndex(50_000)
+	}
+}
+
+func BenchmarkHaveSingle(b *testing.B) {
+	bf := NewBitfield(100_000)
+	bf.SetIndex(50_000)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = bf.Have(50_000)
+	}
+}
+
 func BenchmarkBitField(b *testing.B) {
 	size := 1000_00
-	setBit := getSetBit(size, b)
+	setBit := getSetBit(size)
 
 	b.ReportAllocs()
 	b.ReportMetric(float64(len(setBit)), "set_ops")
@@ -209,5 +229,25 @@ func TestBitfieldClearIndex(t *testing.T) {
 
 	if !bf.Have(0) || !bf.Have(9) {
 		t.Fatal("clearing bit 3 affected another bit")
+	}
+}
+
+func BenchmarkHaveAllPieces(b *testing.B) {
+	const size = 100_000
+
+	bf := NewBitfield(size)
+
+	for i := range size {
+		bf.SetIndex(i)
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		for i := range size {
+			if !bf.Have(i) {
+				b.Fatal("unexpected missing piece")
+			}
+		}
 	}
 }
