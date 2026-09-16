@@ -7,58 +7,53 @@ type Bitfield struct {
 
 func NewBitfield(size int) *Bitfield {
 	return &Bitfield{
-		bits: make([]byte, (size+7)/8),
+		bits: make([]byte, (size+7)>>3),
 		size: size,
 	}
 }
 
-func (bf Bitfield) Have(index int) bool {
-	if index < 0 || index >= bf.size {
+func (b *Bitfield) Have(index int) bool {
+	if uint(index) >= uint(b.size) {
 		return false
 	}
 
-	byteIndex, offset := index>>3, index&7
-	return bf.bits[byteIndex]>>(7-uint(offset))&1 != 0
+	return b.bits[index>>3]&(1<<uint(7-(index&7))) != 0
 }
 
-func (bf Bitfield) SetIndex(index int) {
-	if index < 0 || index >= bf.size {
+func (b *Bitfield) SetIndex(index int) {
+	if uint(index) >= uint(b.size) {
 		return
 	}
 
-	byteIndex, offset := index>>3, index&7
-	bf.bits[byteIndex] |= 1 << (7 - uint(offset))
+	b.bits[index>>3] |= byte(1 << (7 - (index & 7)))
 }
 
-func (bf Bitfield) AllSet() bool {
-	if bf.size == 0 {
+func (b *Bitfield) ClearIndex(index int) {
+	if uint(index) >= uint(b.size) {
+		return
+	}
+
+	b.bits[index>>3] &^= 1 << uint(7-(index&7))
+}
+
+func (b *Bitfield) AllSet() bool {
+	if b.size == 0 {
 		return true
 	}
 
-	fullBytes := bf.size / 8
-	for _, v := range bf.bits[:fullBytes] {
+	fullBytes := b.size >> 3
+
+	for _, v := range b.bits[:fullBytes] {
 		if v != 0xff {
 			return false
 		}
 	}
 
-	remaining := bf.size % 8
+	remaining := b.size & 7
 	if remaining == 0 {
 		return true
 	}
 
-	// Valid bits are the most-significant `remaining` bits.
-	mask := byte(0xff << (8 - remaining))
-	return bf.bits[fullBytes]&mask == mask
-}
-
-func (bf *Bitfield) ClearIndex(index int) {
-	if index < 0 || index >= bf.size {
-		return
-	}
-
-	byteIndex := index / 8
-	bitIndex := uint(7 - (index % 8))
-
-	bf.bits[byteIndex] &^= 1 << bitIndex
+	mask := byte(0xff << uint(8-remaining))
+	return b.bits[fullBytes]&mask == mask
 }

@@ -44,7 +44,6 @@ func BenchmarkBitfieldSet(b *testing.B) {
 	size := 100_000
 	bf := NewBitfield(size)
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
@@ -62,7 +61,6 @@ func BenchmarkBitfieldHave(b *testing.B) {
 		bf.SetIndex(i)
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {

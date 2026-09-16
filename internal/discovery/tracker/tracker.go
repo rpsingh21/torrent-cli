@@ -37,26 +37,25 @@ func (t *Tracker) RequestPeers(event string) (*Response, error) {
 	}
 	resp, err := t.client.Get(url)
 	if err != nil {
-		log.Fatalf("Error: While calling url = %v", err)
+		log.Printf("Error: While calling url = %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("HTTP status: %d", resp.StatusCode)
+		log.Printf("HTTP status: %d", resp.StatusCode)
 		return nil, fmt.Errorf("Http status: %v (%v)", resp.StatusCode, t.MetaInfo.Announce)
 	}
-	log.Printf("HTTP status: %d", resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return nil, err
 	}
-	log.Printf("HTTP status: %d", resp.StatusCode)
 
 	respData, err := bencode.NewDecoder(body).Decode()
 	if err != nil {
-		fmt.Printf("Error: resp convering %v = %+v \n", err, body)
+		log.Printf("Error: resp convering %v = %+v \n", err, body)
 		return nil, err
 	}
 
