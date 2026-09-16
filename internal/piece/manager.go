@@ -135,25 +135,6 @@ func (m *Manager) cleanupExpiredBlocks(now time.Time) int {
 	return m.cleanupExpiredBlocksLocked(now)
 }
 
-// func (m *Manager) AddPeerBitfield(peerID string, bf *bitfield.Bitfield) {
-// 	m.mu.Lock()
-// 	defer m.mu.Unlock()
-
-// 	if bf == nil {
-// 		delete(m.PeerBitfield, peerID)
-// 		return
-// 	}
-
-// 	m.PeerBitfield[peerID] = bf
-// }
-
-// func (m *Manager) RemovePeer(peerID string) {
-// 	m.mu.Lock()
-// 	defer m.mu.Unlock()
-
-// 	delete(m.PeerBitfield, peerID)
-// }
-
 // NextBlock returns the next block that this peer can download.
 //
 // The peer must advertise that it has the piece. A returned block is marked
@@ -171,21 +152,6 @@ func (m *Manager) NextBlock(peerID string) *Block {
 	}
 
 	block := m.Pieces[pieceIndex].NextMissingBlock()
-
-	// peerBF := m.PeerBitfield[peerID]
-	// if peerBF == nil {
-	// 	return nil
-	// }
-
-	// for i, piece := range m.Pieces {
-	// 	if !peerBF.Have(i) {
-	// 		continue
-	// 	}
-
-	// 	block := piece.NextMissingBlock()
-	// 	if block == nil {
-	// 		continue
-	// 	}
 
 	block.Requested = true
 	block.startedAt = time.Now()

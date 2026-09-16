@@ -12,36 +12,21 @@ const (
 	StrategyEndGame
 )
 
-// type Picker struct {
-// 	PeerPieces   map[string]*bitfield.Bitfield
-// 	Have         *bitfield.Bitfield
-// 	Availability []uint32
-// 	Strategy     PickStrategy
-// 	next         int
-// }
-
-// func NewPicker(totalPieces int, have *bitfield.Bitfield) *Picker {
-// 	return &Picker{
-// 		PeerPieces:   make(map[string]*bitfield.Bitfield),
-// 		Have:         have,
-// 		Availability: make([]uint32, totalPieces),
-// 	}
-// }
-
-func (m *Manager) AddPeer(peerID string, pieces *bitfield.Bitfield) {
-	if pieces == nil {
-		delete(m.PeerPieces, peerID)
-		return
-	}
-	m.RemovePeer(peerID)
+func (m *Manager) AddPeer(peerID string, peerpieces *bitfield.Bitfield) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.PeerPieces[peerID] = pieces
+	if peerpieces == nil {
+		delete(m.PeerPieces, peerID)
+		return
+	}
+	m.removeWithoutLock(peerID)
+
+	m.PeerPieces[peerID] = peerpieces
 
 	for i := range m.Availability {
-		if pieces.Have(i) {
+		if peerpieces.Have(i) {
 			m.Availability[i]++
 		}
 	}
@@ -51,13 +36,17 @@ func (m *Manager) RemovePeer(peerID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	pieces, ok := m.PeerPieces[peerID]
+	m.removeWithoutLock(peerID)
+}
+
+func (m *Manager) removeWithoutLock(peerID string) {
+	peerpieces, ok := m.PeerPieces[peerID]
 	if !ok {
 		return
 	}
 
 	for i := range m.Availability {
-		if pieces.Have(i) && m.Availability[i] > 0 {
+		if peerpieces.Have(i) && m.Availability[i] > 0 {
 			m.Availability[i]--
 		}
 	}
@@ -88,13 +77,28 @@ func (m *Manager) sequential(peerID string) int {
 	}
 
 	n := len(m.Availability)
-	for checked := range n {
-		index := (m.next + checked) % n
-		if m.canPick(peerpieces, index) {
-			m.next = (index + 1) % n
-			return index
+	start := m.next
+
+	for i := range n {
+		if m.canPick(peerpieces, i) {
+			m.next = i + 1
+			if m.next == n {
+				m.next = 0
+			}
+			return i
 		}
 	}
+
+	for i := range start {
+		if m.canPick(peerpieces, i) {
+			m.next = i + 1
+			if m.next == n {
+				m.next = 0
+			}
+			return i
+		}
+	}
+
 	return -1
 }
 
