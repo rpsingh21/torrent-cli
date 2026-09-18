@@ -31,8 +31,9 @@ go.work.sum
 # .idea/
 .vscode/
 
+# Temporary folders and files
 testdata/
-ARCHITECTURE/
-
 .logs/
+atemp/
 app/
+output
