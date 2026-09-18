@@ -10,7 +10,7 @@ import (
 var result *Response
 
 func BenchmarkUnmarshalTrackerResponse(b *testing.B) {
-	body, err := os.ReadFile("testdata/metadata/httpbody.test.data")
+	body, err := os.ReadFile("../../../testdata/metadata/httpbody.test.data")
 	if err != nil {
 		b.Fatal(err)
 	}

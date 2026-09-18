@@ -36,3 +36,4 @@ testdata/
 .logs/
 atemp/
 app/
+output
