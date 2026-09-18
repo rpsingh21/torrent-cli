@@ -53,11 +53,11 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 
 }
 
-// func (f *FileStorage) ReadAt(p []byte, off int) (int, error) {
+// func (f *FileStorage) ReadAt(p []byte, off int64) (int, error) {
 // 	return 0, error.Error("Not implemented")
 // }
 
-// func (f *FileStorage) WriteAt(p []byte, off int) (int, error) {
+// func (f *FileStorage) WriteAt(p []byte, off int64) (int, error) {
 
 // }
 

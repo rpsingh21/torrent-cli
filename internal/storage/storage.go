@@ -1,9 +1,9 @@
 package storage
 
 type Storage interface {
-	ReadAt(p []byte, off int) (int, error)
+	ReadAt(p []byte, off int64) (int, error)
 
-	WriteAt(p []byte, off int) (int, error)
+	WriteAt(p []byte, off int64) (int, error)
 
 	ReadPiece(index int, dst []byte) error
 
