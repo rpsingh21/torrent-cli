@@ -56,10 +56,12 @@ func NewPeer(
 		stat:             &Stat{},
 		pieceManager:     pieceManager,
 	}
+	peer.Choked.Store(true)
 	return peer
 }
 
 func (p *Peer) Start() error {
+	// Todo: Review, does context required?
 	ctx := context.WithoutCancel(context.TODO())
 	address := net.JoinHostPort(p.IP, fmt.Sprintf("%d", p.Port))
 
@@ -81,7 +83,6 @@ func (p *Peer) Start() error {
 		return err
 	}
 
-	log.Printf("Peer %v: Starting loop", address)
 	go p.messageLoop()
 	return nil
 }
@@ -91,7 +92,7 @@ func (p *Peer) messageLoop() {
 	// Imp p.ctx.done for grassfull stop
 	for {
 		// Todo: maxBlockProgress load from config
-		if !p.Choked.Load() && p.blockInProgres.Load() < REQUESTS_PER_PEER {
+		if !p.Choked.Load() && p.bitfield != nil && p.blockInProgres.Load() < REQUESTS_PER_PEER {
 			block := p.pieceManager.NextBlock(p.ID)
 			if block != nil {
 				requestBlock := Request{uint32(block.Piece), uint32(block.Offset), uint32(block.Length)}
@@ -149,7 +150,6 @@ func (p *Peer) messageLoop() {
 			log.Printf("%v, Default message %+v", p.IP, message)
 		}
 	}
-	p.Close()
 }
 
 func (p *Peer) Close() error {

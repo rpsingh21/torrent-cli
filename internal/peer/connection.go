@@ -14,14 +14,13 @@ type Connection struct {
 	remoteId string
 	conn     net.Conn
 	infoHash [20]byte
-	myPeerId [20]byte
-
-	reader *bufio.Reader
-	ctx    context.Context
-	cancel context.CancelFunc
+	appId    [20]byte
+	reader   *bufio.Reader
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
-func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, myPeerId [20]byte) *Connection {
+func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, appId [20]byte) *Connection {
 	ctx, cancel := context.WithCancel(parent)
 
 	return &Connection{
@@ -30,12 +29,12 @@ func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, myP
 		ctx:      ctx,
 		cancel:   cancel,
 		infoHash: infoHash,
-		myPeerId: myPeerId,
+		appId:    appId,
 	}
 }
 
 func (pc *Connection) Handshake() error {
-	handshake := NewHandshake(pc.infoHash, pc.myPeerId)
+	handshake := NewHandshake(pc.infoHash, pc.appId)
 
 	// Send our handshake.
 	if _, err := pc.conn.Write(handshake.Encode()); err != nil {

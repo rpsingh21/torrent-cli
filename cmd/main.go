@@ -12,6 +12,7 @@ func main() {
 
 	torrentFilePath := flag.String("tf", "", "Path of torrent file")
 	ouputDir := flag.String("out", "./output", "Dir where want to store dowloaded files")
+	flag.Parse()
 
 	switch {
 	case torrentFilePath != nil:

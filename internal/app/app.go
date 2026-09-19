@@ -21,7 +21,7 @@ func NewAppFromTorrentFile(tfPath string, outputDir string) *App {
 	logger := log.Default()
 	metaInfo, err := torrent.NewTorrentDetailFromFile(tfPath)
 	if err != nil {
-		log.Fatalf("Failed to load torrent file %+v", err)
+		log.Fatalf("Failed to load torrent file (%v) %+v", tfPath, err)
 	}
 
 	return &App{
@@ -40,10 +40,13 @@ func (a *App) Download() {
 	}
 
 	pieceManager := piece.NewManager(a.metaInfo, piece.StrategySequential, storage)
-	manager := peer.NewManager(a.metaInfo, pieceManager)
-	discovery := discovery.New(a.metaInfo, 300, manager.PeerChan)
+	peerManager := peer.NewManager(a.metaInfo, pieceManager)
+	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
 
 	wg.Go(discovery.Start)
+	wg.Go(manager.Run)
 
 	wg.Wait()
+	peerManager.Close()
+	storage.Close()
 }

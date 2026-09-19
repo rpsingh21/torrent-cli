@@ -1,6 +1,7 @@
 package piece
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -85,6 +86,7 @@ func (m *Manager) cleanBlockedBlocks() {
 	defer ticker.Stop()
 
 	for now := range ticker.C {
+		log.Printf("Starting cleanup jobs to removed block %v", now)
 		m.mu.Lock()
 		m.cleanupExpiredBlocksLocked(now)
 		m.mu.Unlock()

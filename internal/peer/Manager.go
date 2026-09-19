@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"log"
+
 	"github.com/rpsingh21/torrent-cli/internal/piece"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
@@ -31,27 +33,29 @@ func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manage
 }
 
 func (m *Manager) Run() {
-	go func() {
-		for {
-			select {
-			case peer := <-m.PeerChan:
-				peer.pieceManager = m.pieceManager
-				m.AddPeer(peer)
-			case peer := <-m.removePeerChan:
-				m.removePeer(peer)
-			}
+	for {
+		select {
+		case peer := <-m.PeerChan:
+			log.Printf("Adding new Peer %v : %v", peer.ID, peer.IP)
+			peer.pieceManager = m.pieceManager
+			m.AddPeer(peer)
 
+		case peer := <-m.removePeerChan:
+			m.removePeer(peer)
 		}
-	}()
+	}
 }
 
 func (m *Manager) AddPeer(peer *Peer) {
 	peer.removeChan = m.removePeerChan
+	peer.metaInfo = m.metaInfo
 	go peer.Start()
+
 	m.activePeer[peer.ID] = peer
 }
 
 func (m *Manager) removePeer(peer *Peer) {
+	m.pieceManager.RemovePeer(peer.ID)
 	delete(m.activePeer, peer.ID)
 }
 
