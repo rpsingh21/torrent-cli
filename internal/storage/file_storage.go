@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -53,13 +54,20 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 
 }
 
-// func (f *FileStorage) ReadAt(p []byte, offset int64) (int, error) {
-// 	return 0, error.Error("Not implemented")
-// }
+// Todo: Will imp
+func (f *FileStorage) ReadAt(p []byte, offset int64) (int, error) {
+	return 0, fmt.Errorf("Not implemented")
+}
 
-// func (f *FileStorage) WriteAt(p []byte, offset int64) (int, error) {
+// Todo: Will imp
+func (f *FileStorage) ReadPiece(index int, dst []byte) error {
+	return fmt.Errorf("Not implemented")
+}
 
-// }
+// Todo: Will imp
+func (f *FileStorage) WriteAt(p []byte, offset int64) (int, error) {
+	return 0, fmt.Errorf("Not implemented")
+}
 
 // ReadPiece(index int, dst []byte) error
 
@@ -100,10 +108,6 @@ func (fs *FileStorage) WritePiece(index int, src []byte) error {
 
 	return nil
 }
-
-// VerifyPiece(index int) (bool, error)
-
-// PieceComplete(index int) bool
 
 func (fs *FileStorage) Close() {
 	for _, file := range fs.files {

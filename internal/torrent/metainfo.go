@@ -11,6 +11,7 @@ type TFile struct {
 }
 
 type MetaInfo struct {
+	AppId        [20]byte
 	Announce     string
 	AnnounceList []string
 	InfoHash     [20]byte
@@ -23,7 +24,7 @@ type MetaInfo struct {
 	TotalPices   int
 }
 
-func (tm *MetaInfo) BuildTrackerURL(peerId [20]byte, event string) (string, error) {
+func (tm *MetaInfo) BuildTrackerURL(event string) (string, error) {
 	base, err := url.Parse(tm.Announce)
 	if err != nil {
 		return "", err
@@ -31,8 +32,8 @@ func (tm *MetaInfo) BuildTrackerURL(peerId [20]byte, event string) (string, erro
 
 	params := url.Values{
 		"info_hash":  []string{string(tm.InfoHash[:])},
-		"peer_id":    []string{string(peerId[:])},
-		"port":       []string{strconv.Itoa(int(6889))},
+		"peer_id":    []string{string(tm.AppId[:])},
+		"port":       []string{"6889"},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},
 		"compact":    []string{"1"},
