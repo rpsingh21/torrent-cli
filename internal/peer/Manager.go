@@ -1,5 +1,7 @@
 package peer
 
+import "context"
+
 // Load from config
 const (
 	MAX_PEERS         = 80
@@ -8,39 +10,56 @@ const (
 )
 
 type Manager struct {
-	activePeer map[string]*Peer
-	peerChan   chan []Peer
-	infohash   [20]byte
-	myid       [20]byte
+	ctx            context.Context
+	activePeer     map[string]*Peer
+	peerChan       chan *Peer
+	removePeerChan chan *Peer
+	infohash       [20]byte
+	myid           [20]byte
 }
 
 func NewManager(infoHash, myid [20]byte) *Manager {
+	ctx := context.WithoutCancel(context.Background())
 	return &Manager{
-		activePeer: make(map[string]*Peer),
-		peerChan:   make(chan []Peer, 50),
-		infohash:   infoHash,
-		myid:       myid,
+		ctx:            ctx,
+		activePeer:     make(map[string]*Peer),
+		peerChan:       make(chan *Peer, 10),
+		removePeerChan: make(chan *Peer, 5),
+		infohash:       infoHash,
+		myid:           myid,
 	}
 }
 
 func (m *Manager) Run() {
-	// tiker := time.NewTicker(5 * time.Second)
-	// go func() {
-	// 	for t := range tiker.C {
-	// 		log.Println("Tiker at ", t)
-	// 		for key := range m.activePeer {
-	// 			log.Println("Peer ", m.activePeer[key].ID)
-	// 			// if m.activePeer[key].Connection.conn.
-	// 		}
-	// 	}
-	// }()
+	go func() {
+		for {
+			select {
+			case peer := <-m.peerChan:
+				m.AddPeer(peer)
+			case peer := <-m.removePeerChan:
+				m.removePeer(peer)
+			case <-m.ctx.Done():
+				m.Close()
+			}
+
+		}
+	}()
 }
 
-func (m *Manager) AddPeers(peers []*Peer) {
-	for _, peer := range peers {
-		peer.InfoHash = m.infohash
-		peer.MyPeerId = m.myid
-		go peer.Start()
-		m.activePeer[peer.ID] = peer
+func (m *Manager) AddPeer(peer *Peer) {
+	peer.InfoHash = m.infohash
+	peer.MyPeerId = m.myid
+	peer.removeChan = m.removePeerChan
+	go peer.Start()
+	m.activePeer[peer.ID] = peer
+}
+
+func (m *Manager) removePeer(peer *Peer) {
+	delete(m.activePeer, peer.ID)
+}
+
+func (m *Manager) Close() {
+	for _, peer := range m.activePeer {
+		peer.Close()
 	}
 }
