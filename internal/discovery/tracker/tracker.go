@@ -1,7 +1,6 @@
 package tracker
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io"
 	"log"
@@ -13,7 +12,6 @@ import (
 )
 
 type Tracker struct {
-	PeerId   [20]byte
 	MetaInfo *torrent.MetaInfo
 	client   *http.Client
 }
@@ -21,12 +19,11 @@ type Tracker struct {
 func NewTracker(metaInfo *torrent.MetaInfo) *Tracker {
 	return &Tracker{
 		MetaInfo: metaInfo,
-		PeerId:   calculate_peer_id(),
 	}
 }
 
 func (t *Tracker) RequestPeers(event string) (*Response, error) {
-	url, err := t.MetaInfo.BuildTrackerURL(t.PeerId, event)
+	url, err := t.MetaInfo.BuildTrackerURL(event)
 	if err != nil {
 		return nil, err
 	}
@@ -64,10 +61,4 @@ func (t *Tracker) RequestPeers(event string) (*Response, error) {
 		return nil, err
 	}
 	return tresp, nil
-}
-
-func calculate_peer_id() [20]byte {
-	var peerID [20]byte
-	rand.Read(peerID[:])
-	return peerID
 }

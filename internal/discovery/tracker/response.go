@@ -49,9 +49,9 @@ func UnmarshalTrackerResponse(data any) (*Response, error) {
 		}
 
 		peers[i] = &peer.Peer{
+			ID:   string(idBytes),
 			IP:   string(ipBytes),
 			Port: uint16(port),
-			ID:   string(idBytes),
 		}
 	}
 
