@@ -44,7 +44,7 @@ func (a *App) Download() {
 	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
 
 	wg.Go(discovery.Start)
-	wg.Go(manager.Run)
+	wg.Go(peerManager.Run)
 
 	wg.Wait()
 	peerManager.Close()

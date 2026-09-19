@@ -128,7 +128,7 @@ func (p *Peer) messageLoop() {
 		case MsgHave:
 			// update have_piece
 			p.pieceManager.UpdatePeer(p.ID, p.bitfield)
-			pieceIndex := binary.LittleEndian.Uint32(message.Payload)
+			pieceIndex := binary.BigEndian.Uint32(message.Payload)
 			p.bitfield.SetIndex(int(pieceIndex))
 			log.Printf("%v: Have piece %+v", p.IP, message)
 		case MsgPiece:
