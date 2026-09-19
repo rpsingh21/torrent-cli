@@ -10,16 +10,15 @@ import (
 	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/piece"
+	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
 type Peer struct {
-	ID   string
-	IP   string
-	Port uint16
-	// Metainfo         *torrent.MetaInfo
-	InfoHash         [20]byte
-	MyPeerId         [20]byte
+	ID               string
+	IP               string
+	Port             uint16
+	metaInfo         *torrent.MetaInfo
 	Connection       *Connection
 	Choked           atomic.Bool
 	Interested       atomic.Bool
@@ -30,25 +29,24 @@ type Peer struct {
 	pieceManager     *piece.Manager
 	removeChan       chan *Peer
 	bitfield         *bitfield.Bitfield
-	// ctx            context.Context
-	// Will imp
+
+	// Todo: Will imp
 	// Extensions PeerExtensions
 }
 
-// func NewPeer(id string, ip string, port uint16) *Peer {
-// 	return &Peer{
-// 		ID: ,
-// 	}
-// }
-
-func NewPeer(myPeerId [20]byte, infoHash [20]byte, Id string, IP string, Port uint16) *Peer {
+func NewPeer(
+	id string,
+	ip string,
+	port uint16,
+	metaInfo *torrent.MetaInfo,
+	pieceManager *piece.Manager,
+) *Peer {
 
 	peer := &Peer{
-		ID:               string(myPeerId[:]),
-		IP:               IP,
-		Port:             Port,
-		InfoHash:         infoHash,
-		MyPeerId:         myPeerId,
+		ID:               id,
+		IP:               ip,
+		Port:             port,
+		metaInfo:         metaInfo,
 		Connection:       nil,
 		Choked:           atomic.Bool{},
 		Interested:       atomic.Bool{},
@@ -56,6 +54,7 @@ func NewPeer(myPeerId [20]byte, infoHash [20]byte, Id string, IP string, Port ui
 		RemoteInterested: atomic.Bool{},
 		blockInProgres:   atomic.Int32{},
 		stat:             &Stat{},
+		pieceManager:     pieceManager,
 	}
 	return peer
 }
@@ -71,8 +70,7 @@ func (p *Peer) Start() error {
 		return err
 	}
 
-	defer p.Close()
-	p.Connection = NewConnection(ctx, conn, p.InfoHash, p.MyPeerId)
+	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
 	if err := p.Connection.Handshake(); err != nil {
 		p.removeChan <- p
 		return err
@@ -96,7 +94,7 @@ func (p *Peer) messageLoop() {
 		if !p.Choked.Load() && p.blockInProgres.Load() < REQUESTS_PER_PEER {
 			block := p.pieceManager.NextBlock(p.ID)
 			if block != nil {
-				requestBlock := Request{block.Piece, block.Offset, block.Length}
+				requestBlock := Request{uint32(block.Piece), uint32(block.Offset), uint32(block.Length)}
 				message := &Message{MsgRequest, requestBlock.Encode()}
 				if err := p.Connection.WriteMessage(message); err != nil {
 					log.Printf("%v: Error while sending block request: %v", p.ID, err)
@@ -140,6 +138,7 @@ func (p *Peer) messageLoop() {
 				continue
 			}
 			p.pieceManager.CompleteBlock(int(block.Index), int(block.Begin), block.Data)
+			p.pieceManager.CompletePiece(int(block.Index))
 		case MsgRequest:
 			// Todo: imp Later
 			log.Printf("%v: Get piece Request from peer %+v", p.IP, message)

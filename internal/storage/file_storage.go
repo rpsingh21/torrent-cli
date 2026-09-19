@@ -109,10 +109,11 @@ func (fs *FileStorage) WritePiece(index int, src []byte) error {
 	return nil
 }
 
-func (fs *FileStorage) Close() {
+func (fs *FileStorage) Close() error {
 	for _, file := range fs.files {
 		file.Close()
 	}
+	return nil
 }
 
 // It will take piece index and return file index.

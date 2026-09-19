@@ -1,32 +1,32 @@
 package peer
 
-import "context"
+import (
+	"github.com/rpsingh21/torrent-cli/internal/piece"
+	"github.com/rpsingh21/torrent-cli/internal/torrent"
+)
 
 // Load from config
 const (
 	MAX_PEERS         = 80
 	REQUESTS_PER_PEER = 32
-	REQUEST_TIMEOUT   = 15
+	REQUEST_TIMEOUT   = 5
 )
 
 type Manager struct {
-	ctx            context.Context
 	activePeer     map[string]*Peer
-	peerChan       chan *Peer
+	PeerChan       chan *Peer
 	removePeerChan chan *Peer
-	infohash       [20]byte
-	myid           [20]byte
+	metaInfo       *torrent.MetaInfo
+	pieceManager   *piece.Manager
 }
 
-func NewManager(infoHash, myid [20]byte) *Manager {
-	ctx := context.WithoutCancel(context.Background())
+func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
 	return &Manager{
-		ctx:            ctx,
 		activePeer:     make(map[string]*Peer),
-		peerChan:       make(chan *Peer, 10),
+		PeerChan:       make(chan *Peer, 10),
 		removePeerChan: make(chan *Peer, 5),
-		infohash:       infoHash,
-		myid:           myid,
+		metaInfo:       metaInfo,
+		pieceManager:   pieceManager,
 	}
 }
 
@@ -34,12 +34,11 @@ func (m *Manager) Run() {
 	go func() {
 		for {
 			select {
-			case peer := <-m.peerChan:
+			case peer := <-m.PeerChan:
+				peer.pieceManager = m.pieceManager
 				m.AddPeer(peer)
 			case peer := <-m.removePeerChan:
 				m.removePeer(peer)
-			case <-m.ctx.Done():
-				m.Close()
 			}
 
 		}
@@ -47,8 +46,6 @@ func (m *Manager) Run() {
 }
 
 func (m *Manager) AddPeer(peer *Peer) {
-	peer.InfoHash = m.infohash
-	peer.MyPeerId = m.myid
 	peer.removeChan = m.removePeerChan
 	go peer.Start()
 	m.activePeer[peer.ID] = peer

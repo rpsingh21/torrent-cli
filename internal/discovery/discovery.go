@@ -41,11 +41,10 @@ func (d *Discovery) updatePeersFromTracker(event string) {
 	res, err := d.tracker.RequestPeers(event)
 	if err != nil {
 		log.Println("Failed to get peers from tracker", err)
+		return
 	}
 
-	if res.Interval > 0 {
-		d.interval = res.Interval
-	}
+	d.interval = res.Interval
 	for _, peer := range res.Peers {
 		d.peerChan <- peer
 	}

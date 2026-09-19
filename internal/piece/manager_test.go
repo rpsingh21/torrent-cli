@@ -2,7 +2,6 @@ package piece
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha1"
 	"testing"
 	"time"
@@ -98,9 +97,9 @@ func TestManagerNextBlock(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(),
 				tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 
@@ -142,8 +141,8 @@ func TestManagerCleanupExpiredBlocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(), tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 
@@ -184,8 +183,8 @@ func TestManagerCompleteBlock(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(), tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 
@@ -225,8 +224,8 @@ func TestManagerCompletePiece(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(), tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 
@@ -275,8 +274,8 @@ func TestManagerReDownloadPiece(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(), tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 
@@ -306,8 +305,8 @@ func TestManagerConcurrentNextBlock(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			manager := NewManager(
-				context.Background(),
 				testMetaInfo(), tt.strategy,
+				nil,
 			)
 			defer manager.Close()
 

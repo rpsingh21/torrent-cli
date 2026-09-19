@@ -35,5 +35,4 @@ go.work.sum
 testdata/
 .logs/
 atemp/
-app/
 output
