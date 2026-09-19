@@ -1,10 +1,11 @@
 package piece
 
 import (
-	"context"
+	"log"
 	"sync"
 	"time"
 
+	"github.com/rpsingh21/torrent-cli/internal/storage"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
@@ -16,8 +17,6 @@ const (
 )
 
 type Manager struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
 	Metainfo     *torrent.MetaInfo
 	Have         *bitfield.Bitfield
 	Pieces       []*Piece
@@ -26,15 +25,14 @@ type Manager struct {
 	Strategy     PickStrategy
 	next         int
 	mu           sync.Mutex
+	storage      storage.Storage
 }
 
 func NewManager(
-	ctx context.Context,
 	meta *torrent.MetaInfo,
 	strategy PickStrategy,
+	storage storage.Storage,
 ) *Manager {
-	ctx, cancel := context.WithCancel(ctx)
-
 	pieces := make([]*Piece, len(meta.PieceHashes))
 
 	for i, hash := range meta.PieceHashes {
@@ -50,14 +48,13 @@ func NewManager(
 	}
 
 	m := &Manager{
-		ctx:          ctx,
-		cancel:       cancel,
 		Metainfo:     meta,
 		Have:         bitfield.NewBitfield(len(pieces)),
 		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Pieces:       pieces,
 		Strategy:     strategy,
 		Availability: make([]uint32, len(meta.PieceHashes)),
+		storage:      storage,
 	}
 
 	go m.cleanBlockedBlocks()
@@ -88,17 +85,11 @@ func (m *Manager) cleanBlockedBlocks() {
 	ticker := time.NewTicker(CLEANUP_INTERVAL)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-m.ctx.Done():
-			// log.Printf("Cancelling manager block cleanup")
-			return
-
-		case now := <-ticker.C:
-			m.mu.Lock()
-			m.cleanupExpiredBlocksLocked(now)
-			m.mu.Unlock()
-		}
+	for now := range ticker.C {
+		log.Printf("Starting cleanup jobs to removed block %v", now)
+		m.mu.Lock()
+		m.cleanupExpiredBlocksLocked(now)
+		m.mu.Unlock()
 	}
 }
 
@@ -209,6 +200,17 @@ func (m *Manager) CompletePiece(index int) bool {
 	}
 
 	m.Have.SetIndex(index)
+
+	// For Unit Test storage can be nil
+	if m.storage != nil {
+		data := make([]byte, 0, piece.Length)
+		for i := range piece.Blocks {
+			data = append(data, piece.Blocks[i].Data...)
+		}
+		// Reset piece data for clear memroy
+		piece.Blocks = nil
+		m.storage.WritePiece(index, data)
+	}
 	return true
 }
 
@@ -254,7 +256,5 @@ func (m *Manager) ReDownloadPiece(index int) bool {
 }
 
 func (m *Manager) Close() {
-	if m.cancel != nil {
-		m.cancel()
-	}
+
 }

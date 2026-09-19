@@ -251,3 +251,100 @@ func BenchmarkHaveAllPieces(b *testing.B) {
 		}
 	}
 }
+
+func TestNewBitfieldFromBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		bits []byte
+		size int
+		want *Bitfield
+	}{
+		{
+			name: "empty bitfield",
+			bits: []byte{},
+			size: 0,
+			want: &Bitfield{
+				bits: []byte{},
+				size: 0,
+			},
+		},
+		{
+			name: "exact byte size",
+			bits: []byte{0xff},
+			size: 8,
+			want: &Bitfield{
+				bits: []byte{0xff},
+				size: 8,
+			},
+		},
+		{
+			name: "partial byte",
+			bits: []byte{0xff, 0xc0},
+			size: 10,
+			want: &Bitfield{
+				bits: []byte{0xff, 0xc0},
+				size: 10,
+			},
+		},
+		{
+			name: "multiple bytes",
+			bits: []byte{0xff, 0xff, 0xff},
+			size: 24,
+			want: &Bitfield{
+				bits: []byte{0xff, 0xff, 0xff},
+				size: 24,
+			},
+		},
+		{
+			name: "invalid too few bytes",
+			bits: []byte{0xff},
+			size: 16,
+			want: nil,
+		},
+		{
+			name: "invalid too many bytes",
+			bits: []byte{0xff, 0xff},
+			size: 8,
+			want: nil,
+		},
+		{
+			name: "zero size with bytes",
+			bits: []byte{0xff},
+			size: 0,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NewBitfieldFromBytes(tt.bits, tt.size)
+
+			if got == nil {
+				if tt.want != nil {
+					t.Fatal("expected Bitfield, got nil")
+				}
+				return
+			}
+
+			if tt.want == nil {
+				t.Fatal("expected nil, got Bitfield")
+			}
+
+			if got.size != tt.want.size {
+				t.Errorf("size = %d, want %d", got.size, tt.want.size)
+			}
+
+			if len(got.bits) != len(tt.want.bits) {
+				t.Errorf("len(bits) = %d, want %d",
+					len(got.bits), len(tt.want.bits))
+			}
+
+			for i := range got.bits {
+				if got.bits[i] != tt.want.bits[i] {
+					t.Errorf("bits[%d] = %08b, want %08b",
+						i, got.bits[i], tt.want.bits[i])
+				}
+			}
+		})
+	}
+}

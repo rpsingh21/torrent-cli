@@ -9,8 +9,5 @@ type Storage interface {
 
 	WritePiece(index int, src []byte) error
 
-	VerifyPiece(index int) (bool, error)
-	PieceComplete(index int) bool
-
 	Close() error
 }

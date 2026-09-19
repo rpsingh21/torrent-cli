@@ -1,35 +1,26 @@
 package main
 
 import (
+	"flag"
 	"log"
-	"os"
 
-	"github.com/rpsingh21/torrent-cli/internal/discovery/tracker"
-	"github.com/rpsingh21/torrent-cli/internal/peer"
-	"github.com/rpsingh21/torrent-cli/internal/torrent"
+	"github.com/rpsingh21/torrent-cli/internal/app"
 )
 
+// This is the entry point of the cmd application.
 func main() {
-	// This is the entry point of the application.
-	// You can add your application logic here.
-	torrentFilePath := os.Args[1]
-	log.Println("Torrent file path:", torrentFilePath)
 
-	metaInfo, err := torrent.NewTorrentDetailFromFile(torrentFilePath)
-	if err != nil {
-		log.Printf("Failed to load torrent file %v", metaInfo)
+	torrentFilePath := flag.String("tf", "", "Path of torrent file")
+	ouputDir := flag.String("out", "./output", "Dir where want to store dowloaded files")
+	flag.Parse()
+
+	switch {
+	case torrentFilePath != nil:
+		app := app.NewAppFromTorrentFile(*torrentFilePath, *ouputDir)
+		app.Download()
+	default:
+		log.Fatalln("Please provide valid torrent provide(torrenfile)")
 	}
 
-	tracker := tracker.NewTracker(metaInfo)
-	// piece := piece.NewManager(metaInfo)
-	resp, err := tracker.RequestPeers("started")
-	if err != nil {
-		log.Print("Failed to load peers")
-	}
-	done := make(chan bool)
-	manager := peer.NewManager(metaInfo.InfoHash, tracker.PeerId)
-	manager.AddPeers(resp.Peers)
-	manager.Run()
-	<-done
-
+	log.Println("Torrent downloaded successfully!:", ouputDir)
 }

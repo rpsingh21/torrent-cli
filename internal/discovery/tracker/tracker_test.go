@@ -53,8 +53,7 @@ func TestTracker(t *testing.T) {
 				fmt.Printf("Error => %+v\n", err)
 				t.Fatal(err)
 			}
-			log.Printf("My PeerId %+v", tracker.PeerId)
-			log.Printf("InfoHash %+v", metaInfo.InfoHash)
+
 			if !tf.errorExp {
 				log.Printf("TrackerResponse = %+v", tarckerResp)
 			}

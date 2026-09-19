@@ -1,7 +1,6 @@
 package piece
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -37,9 +36,9 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 			b.Run(testName, func(b *testing.B) {
 
 				manager := NewManager(
-					context.Background(),
 					benchmarkMetaInfo(pieceCount),
 					st.strategy,
+					nil,
 				)
 				defer manager.Close()
 
@@ -77,9 +76,9 @@ func BenchmarkManager10Cent(b *testing.B) {
 
 			b.Run(testName, func(b *testing.B) {
 				manager := NewManager(
-					context.Background(),
 					benchmarkMetaInfo(pieceCount),
 					st.strategy,
+					nil,
 				)
 				defer manager.Close()
 

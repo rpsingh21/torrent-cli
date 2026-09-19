@@ -27,5 +27,7 @@ func TestFileStorage(t *testing.T) {
 		src = fmt.Appendf(src, "This is offset %v", i*int(metaInfo.PieceLength))
 		storage.WritePiece(i, src)
 	}
+
 	storage.Close()
+	os.RemoveAll("./output")
 }

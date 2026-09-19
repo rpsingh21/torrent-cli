@@ -1,6 +1,7 @@
 package torrent
 
 import (
+	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
 	"os"
@@ -25,7 +26,9 @@ func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 		return nil, fmt.Errorf("Invalid torrent: root is not a dictionary")
 	}
 
-	torrent := &MetaInfo{}
+	torrent := &MetaInfo{
+		AppId: calculate_peer_id(),
+	}
 
 	if announce, ok := root["announce"].([]byte); ok {
 		torrent.Announce = string(announce)
@@ -133,7 +136,8 @@ func bytesPathToString(path []any) string {
 func splitPieceHashes(pieces []byte) ([][20]byte, error) {
 	const pieceHashLen = 20
 	if len(pieces)%pieceHashLen != 0 {
-		return nil, fmt.Errorf("Malformed pieces: length %d is not divisible by %d",
+		return nil, fmt.Errorf(
+			"Malformed pieces: length %d is not divisible by %d",
 			len(pieces),
 			pieceHashLen,
 		)
@@ -147,4 +151,10 @@ func splitPieceHashes(pieces []byte) ([][20]byte, error) {
 	}
 
 	return hashes, nil
+}
+
+func calculate_peer_id() [20]byte {
+	var peerID [20]byte
+	rand.Read(peerID[:])
+	return peerID
 }
