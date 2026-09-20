@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -9,43 +10,80 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-// This collect peers for Tracker(announcers), DHC, PEX
-// As of now only support Tracker. Implement DHC and PEX
+// Discovery collects peers from trackers. DHT and PEX can be added as additional
+// discovery sources without changing PeerManager.
 type Discovery struct {
 	tracker  *tracker.Tracker
-	interval int
+	interval time.Duration
 	peerChan chan *peer.Peer
 }
 
 func New(metaInfo *torrent.MetaInfo, defaultInterval int, peerChan chan *peer.Peer) *Discovery {
-	discovery := &Discovery{
-		interval: defaultInterval,
+	d := &Discovery{
+		interval: time.Duration(defaultInterval) * time.Second,
 		peerChan: peerChan,
 	}
 	if metaInfo.Announce != "" {
-		discovery.tracker = tracker.NewTracker(metaInfo)
+		d.tracker = tracker.NewTracker(metaInfo)
 	}
-	discovery.updatePeersFromTracker("started")
-	return discovery
+	return d
 }
 
-// implement gracefull close
-func (d *Discovery) Start() {
+func (d *Discovery) Start(ctx context.Context) error {
+	if d.tracker == nil {
+		return nil
+	}
+
+	interval := d.interval
+	if err := d.updatePeersFromTracker(ctx, "started"); err == nil {
+		if d.interval > 0 {
+			interval = d.interval
+		}
+	} else {
+		log.Printf("Initial tracker announce failed: %v", err)
+	}
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
 	for {
-		time.Sleep(time.Duration(d.interval) * time.Second)
-		d.updatePeersFromTracker("")
+		select {
+		case <-ctx.Done():
+			// Best effort: do not block shutdown on a tracker.
+			stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := d.updatePeersFromTracker(stopCtx, "Stopped"); err != nil {
+				log.Printf("Stopped tracker announce failed: %v", err)
+			}
+			return ctx.Err()
+		case <-timer.C:
+			if err := d.updatePeersFromTracker(ctx, ""); err != nil && ctx.Err() == nil {
+				log.Printf("Tracker announce failed: %v", err)
+			}
+			interval = d.interval
+			if interval <= 0 {
+				interval = 15 * time.Minute
+			}
+			timer.Reset(interval)
+		}
 	}
 }
 
-func (d *Discovery) updatePeersFromTracker(event string) {
-	res, err := d.tracker.RequestPeers(event)
+func (d *Discovery) updatePeersFromTracker(ctx context.Context, event string) error {
+	res, err := d.tracker.RequestPeers(ctx, event)
 	if err != nil {
-		log.Println("Failed to get peers from tracker", err)
-		return
+		return err
+	}
+	if res.Interval > 0 {
+		d.interval = time.Duration(res.Interval) * time.Second
 	}
 
-	d.interval = res.Interval
-	for _, peer := range res.Peers {
-		d.peerChan <- peer
+	for _, p := range res.Peers {
+		select {
+		case d.peerChan <- p:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return nil
 }

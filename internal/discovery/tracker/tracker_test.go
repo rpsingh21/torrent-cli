@@ -48,7 +48,7 @@ func TestTracker(t *testing.T) {
 				t.Fatal(err)
 			}
 			tracker := NewTracker(metaInfo)
-			tarckerResp, err := tracker.RequestPeers("started")
+			tarckerResp, err := tracker.RequestPeers(t.Context(), "started")
 			if tf.errorExp != (err != nil) {
 				fmt.Printf("Error => %+v\n", err)
 				t.Fatal(err)
