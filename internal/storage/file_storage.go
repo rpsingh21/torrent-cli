@@ -18,6 +18,10 @@ type FileStorage struct {
 
 func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, error) {
 
+	if len(metaInfo.Files) == 0 {
+		return nil, fmt.Errorf("Torrent contains no files")
+	}
+
 	n := len(metaInfo.Files)
 	offsets, files := make([]int64, n+1), make([]*os.File, n)
 	offsets[0] = 0
@@ -26,11 +30,25 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 		log.Printf("Getting error while removing folder : %v", err)
 	}
 
-	for i, tf := range metaInfo.Files {
-		filePath := filepath.Join(baseDir, tf.Path)
+	fileStorage := &FileStorage{
+		metaInfo: metaInfo,
+		offsets:  offsets,
+		files:    files,
+	}
 
+	cleanup := func(err error) (*FileStorage, error) {
+		_ = fileStorage.Close()
+		return nil, err
+	}
+
+	for i, tf := range metaInfo.Files {
+		if tf.Length < 0 {
+			return cleanup(fmt.Errorf("negative file length for %q", tf.Path))
+		}
+
+		filePath := filepath.Join(baseDir, tf.Path)
 		if err := os.MkdirAll(filepath.Dir(filePath), 0775); err != nil {
-			return nil, err
+			return cleanup(fmt.Errorf("Create directory for %q: %w", tf.Path, err))
 		}
 
 		file, err := os.OpenFile(
@@ -39,18 +57,14 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 			0644,
 		)
 		if err != nil {
-			return nil, err
+			return cleanup(err)
 		}
 
 		files[i] = file
 		offsets[i+1] = offsets[i] + tf.Length
 	}
 
-	return &FileStorage{
-		metaInfo: metaInfo,
-		offsets:  offsets,
-		files:    files,
-	}, nil
+	return fileStorage, nil
 
 }
 
@@ -110,10 +124,14 @@ func (fs *FileStorage) WritePiece(index int, src []byte) error {
 }
 
 func (fs *FileStorage) Close() error {
+	var firstErr error
 	for _, file := range fs.files {
-		file.Close()
+		if err := file.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+
+	return firstErr
 }
 
 // It will take piece index and return file index.
