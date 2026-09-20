@@ -13,7 +13,7 @@ func NewBitfield(size int) *Bitfield {
 }
 
 func NewBitfieldFromBytes(bits []byte, size int) *Bitfield {
-	if (size+7)/8 != len(bits) {
+	if (size+7)>>3 != len(bits) {
 		return nil // or return an error
 	}
 
