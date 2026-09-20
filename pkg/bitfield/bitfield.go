@@ -12,6 +12,17 @@ func NewBitfield(size int) *Bitfield {
 	}
 }
 
+func NewBitfieldFromBytes(bits []byte, size int) *Bitfield {
+	if (size+7)>>3 != len(bits) {
+		return nil // or return an error
+	}
+
+	return &Bitfield{
+		bits: bits,
+		size: size,
+	}
+}
+
 func (b *Bitfield) Have(index int) bool {
 	if uint(index) >= uint(b.size) {
 		return false

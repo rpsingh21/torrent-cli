@@ -1,7 +1,6 @@
 package piece
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -37,11 +36,10 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 			b.Run(testName, func(b *testing.B) {
 
 				manager := NewManager(
-					context.Background(),
 					benchmarkMetaInfo(pieceCount),
 					st.strategy,
+					nil,
 				)
-				defer manager.Close()
 
 				bf := bitfield.NewBitfield(pieceCount)
 				bf.SetIndex(pieceCount - 1)
@@ -77,11 +75,10 @@ func BenchmarkManager10Cent(b *testing.B) {
 
 			b.Run(testName, func(b *testing.B) {
 				manager := NewManager(
-					context.Background(),
 					benchmarkMetaInfo(pieceCount),
 					st.strategy,
+					nil,
 				)
-				defer manager.Close()
 
 				bf := peerWith10CentBits(pieceCount * 10)
 				manager.AddPeer("peer", bf)

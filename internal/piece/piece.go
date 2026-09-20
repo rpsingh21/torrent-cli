@@ -3,16 +3,16 @@ package piece
 import "crypto/sha1"
 
 type Piece struct {
-	Index  int
-	Length int
-	HashV1 [20]byte
-	Blocks []Block
+	Index     int
+	Length    int
+	HashV1    [20]byte
+	Blocks    []Block
+	Verifying bool
 }
 
 func (p *Piece) NextMissingBlock() *Block {
 	for i := range p.Blocks {
 		block := &p.Blocks[i]
-
 		if block.Completed || block.Requested {
 			continue
 		}
@@ -34,13 +34,15 @@ func (p *Piece) blockAt(offset int) *Block {
 }
 
 func (p *Piece) Completed() bool {
+	if p.Verifying || len(p.Blocks) == 0 {
+		return false
+	}
 	for i := range p.Blocks {
 		if !p.Blocks[i].Completed {
 			return false
 		}
 	}
-
-	return len(p.Blocks) > 0
+	return true
 }
 
 func (p *Piece) Verify() bool {
@@ -55,6 +57,5 @@ func (p *Piece) Verify() bool {
 		}
 		data = append(data, p.Blocks[i].Data...)
 	}
-
 	return sha1.Sum(data) == p.HashV1
 }

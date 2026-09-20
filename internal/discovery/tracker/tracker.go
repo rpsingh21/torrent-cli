@@ -1,10 +1,9 @@
 package tracker
 
 import (
-	"crypto/rand"
+	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 )
 
 type Tracker struct {
-	PeerId   [20]byte
 	MetaInfo *torrent.MetaInfo
 	client   *http.Client
 }
@@ -21,53 +19,40 @@ type Tracker struct {
 func NewTracker(metaInfo *torrent.MetaInfo) *Tracker {
 	return &Tracker{
 		MetaInfo: metaInfo,
-		PeerId:   calculate_peer_id(),
+		client:   &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
-func (t *Tracker) RequestPeers(event string) (*Response, error) {
-	url, err := t.MetaInfo.BuildTrackerURL(t.PeerId, event)
+func (t *Tracker) RequestPeers(ctx context.Context, event string) (*Response, error) {
+	url, err := t.MetaInfo.BuildTrackerURL(event)
 	if err != nil {
 		return nil, err
 	}
 
-	if t.client == nil {
-		log.Printf("Creating new client %v,", t.MetaInfo.Announce)
-		t.client = &http.Client{Timeout: 15 * time.Second}
-	}
-	resp, err := t.client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		log.Printf("Error: While calling url = %v", err)
+		return nil, err
+	}
+
+	resp, err := t.client.Do(req)
+	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("HTTP status: %d", resp.StatusCode)
-		return nil, fmt.Errorf("Http status: %v (%v)", resp.StatusCode, t.MetaInfo.Announce)
+		return nil, fmt.Errorf("Tracker HTTP status %d (%s)", resp.StatusCode, t.MetaInfo.Announce)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
 	respData, err := bencode.NewDecoder(body).Decode()
 	if err != nil {
-		log.Printf("Error: resp convering %v = %+v \n", err, body)
-		return nil, err
+		return nil, fmt.Errorf("decode tracker response: %w", err)
 	}
 
-	tresp, err := UnmarshalTrackerResponse(respData)
-	if err != nil {
-		return nil, err
-	}
-	return tresp, nil
-}
-
-func calculate_peer_id() [20]byte {
-	var peerID [20]byte
-	rand.Read(peerID[:])
-	return peerID
+	return UnmarshalTrackerResponse(respData)
 }

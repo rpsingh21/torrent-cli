@@ -16,20 +16,20 @@ func TestTorrentFile(t *testing.T) {
 		t.Errorf("Ancounter error while decoding torrent file %v", err)
 	}
 	fmt.Println(hex.EncodeToString(nt.InfoHash[:]))
+	fmt.Printf("%+v", nt)
 }
 
 func TestSingleTorrentFile(t *testing.T) {
-	myPeerId := [20]byte{73, 158, 15, 108, 202, 74, 147, 78, 115, 126, 145, 49, 204, 11, 11, 39, 41, 16, 136, 183}
 	epath, _ := os.Getwd()
 	path := path.Join(epath, "../../testdata/torrents/singlefile.torrent")
 	nt, err := NewTorrentDetailFromFile(path)
 	if err != nil || nt.Announce == "" {
 		t.Errorf("Ancounter error while decoding torrent file %v", err)
 	}
-	if _, err := nt.BuildTrackerURL(myPeerId, "start"); err != nil {
+	if _, err := nt.BuildTrackerURL("start"); err != nil {
 		t.Error("Fail to build tracker url", err)
 	}
-	if _, err := nt.BuildTrackerURL(myPeerId, ""); err != nil {
+	if _, err := nt.BuildTrackerURL(""); err != nil {
 		t.Error("Faild to build URL", err)
 	}
 }

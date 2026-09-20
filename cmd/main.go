@@ -1,35 +1,51 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 
-	"github.com/rpsingh21/torrent-cli/internal/discovery/tracker"
-	"github.com/rpsingh21/torrent-cli/internal/peer"
-	"github.com/rpsingh21/torrent-cli/internal/torrent"
+	"github.com/rpsingh21/torrent-cli/internal/app"
 )
 
 func main() {
-	// This is the entry point of the application.
-	// You can add your application logic here.
-	torrentFilePath := os.Args[1]
-	log.Println("Torrent file path:", torrentFilePath)
 
-	metaInfo, err := torrent.NewTorrentDetailFromFile(torrentFilePath)
-	if err != nil {
-		log.Printf("Failed to load torrent file %v", metaInfo)
+	// Only Debug
+	go func() {
+		log.Println("pprof: http://localhost:6060/debug/pprof/")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	torrentFilePath := flag.String("tf", "", "Path of torrent file")
+	out := flag.String("out", "./output", "Dir where want to store downloaded files")
+	flag.Parse()
+
+	if *torrentFilePath == "" {
+		log.Fatal("Please provide a torrent file with -tf")
 	}
 
-	tracker := tracker.NewTracker(metaInfo)
-	// piece := piece.NewManager(metaInfo)
-	resp, err := tracker.RequestPeers("started")
+	outputDir, err := filepath.Abs(*out)
 	if err != nil {
-		log.Print("Failed to load peers")
+		log.Fatal(err)
 	}
-	done := make(chan bool)
-	manager := peer.NewManager(metaInfo.InfoHash, tracker.PeerId)
-	manager.AddPeers(resp.Peers)
-	manager.Run()
-	<-done
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
+	if err != nil {
+		log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
+	}
+
+	if err := app.Download(ctx); err != nil {
+		log.Fatalf("Download failed: %v", err)
+	}
+
+	log.Printf("Torrent downloaded successfully: %s", outputDir)
 }

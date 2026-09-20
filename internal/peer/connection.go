@@ -6,22 +6,24 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"time"
 )
 
+const maxPeerMessageLength = 4 * 1024 * 1024
+
 type Connection struct {
-	remoteId string
+	remoteID string
 	conn     net.Conn
 	infoHash [20]byte
-	myPeerId [20]byte
-
-	reader *bufio.Reader
-	ctx    context.Context
-	cancel context.CancelFunc
+	appID    [20]byte
+	reader   *bufio.Reader
+	buff     []byte
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
-func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, myPeerId [20]byte) *Connection {
+func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, appID [20]byte) *Connection {
 	ctx, cancel := context.WithCancel(parent)
 
 	return &Connection{
@@ -30,96 +32,86 @@ func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, myP
 		ctx:      ctx,
 		cancel:   cancel,
 		infoHash: infoHash,
-		myPeerId: myPeerId,
+		appID:    appID,
 	}
 }
 
-func (pc *Connection) Handshake() error {
-	handshake := NewHandshake(pc.infoHash, pc.myPeerId)
-
-	// Send our handshake.
-	if _, err := pc.conn.Write(handshake.Encode()); err != nil {
-		log.Printf("Handshake write failed: %v", err)
-		return err
+func (c *Connection) Handshake() error {
+	if err := c.writeAll(NewHandshake(c.infoHash, c.appID).Encode()); err != nil {
+		return fmt.Errorf("write handshake: %w", err)
 	}
 
-	// Read peer handshake.
 	buf := make([]byte, 68)
-
-	if _, err := io.ReadFull(pc.reader, buf); err != nil {
-		log.Printf("Handshake read failed: %v", err)
-		return err
+	if _, err := io.ReadFull(c.reader, buf); err != nil {
+		return fmt.Errorf("read handshake: %w", err)
 	}
 
 	remote, err := DecodeHandshakeMsg(buf)
 	if err != nil {
-		log.Printf("Invalid peer handshake: %v", err)
 		return err
 	}
 
-	// Make sure we're talking about the same torrent.
-	if remote.InfoHash != pc.infoHash {
+	if remote.InfoHash != c.infoHash {
 		return fmt.Errorf("info hash mismatch")
 	}
 
-	pc.remoteId = string(remote.PeerID[:])
-	log.Printf(
-		"Handshake successful with %v, peerID=%x",
-		pc.conn.RemoteAddr(),
-		remote.PeerID,
-	)
-
+	c.remoteID = string(remote.PeerID[:])
 	return nil
 }
 
-func (pc *Connection) ReadMessage() (*Message, error) {
+func (c *Connection) ReadMessage() (*Message, error) {
 	var lengthBuf [4]byte
-	if _, err := io.ReadFull(pc.reader, lengthBuf[:]); err != nil {
+	if _, err := io.ReadFull(c.reader, lengthBuf[:]); err != nil {
 		return nil, err
 	}
 
 	length := binary.BigEndian.Uint32(lengthBuf[:])
-
-	// Keep-alive.
 	if length == 0 {
 		return nil, nil
 	}
-
-	// A peer message must at least contain the message ID.
-	if length < 1 {
-		return nil, fmt.Errorf("invalid message length: %d", length)
+	if length > maxPeerMessageLength {
+		return nil, fmt.Errorf("message too large: %d vs %d", length, maxPeerMessageLength)
 	}
 
-	// TODO: configurable maximum.
-	if length > 4*1024*1024 {
-		return nil, fmt.Errorf("message too large: %d", length)
-	}
-
-	messageBuf := make([]byte, length)
-	if _, err := io.ReadFull(pc.reader, messageBuf); err != nil {
+	messageBuf := make([]byte, int(length))
+	if _, err := io.ReadFull(c.reader, messageBuf); err != nil {
 		return nil, err
 	}
 
 	return ParseMessage(messageBuf)
 }
 
-func (pc *Connection) WriteMessage(m *Message) error {
-	data := m.EncodeMessage()
-
-	_, err := pc.conn.Write(data)
-	if err != nil {
-		log.Printf("Message write failed, Message type: %v", m.String())
+func (c *Connection) WriteMessage(m *Message) error {
+	if err := c.writeAll(m.EncodeMessage()); err != nil {
+		return fmt.Errorf("write %s: %w", m.String(), err)
 	}
-
-	return err
+	return nil
 }
 
-func (pc *Connection) Close() error {
-	if pc.cancel != nil {
-		pc.cancel()
+func (c *Connection) writeAll(data []byte) error {
+	for len(data) > 0 {
+		n, err := c.conn.Write(data)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		data = data[n:]
 	}
-	if pc.conn != nil {
-		return pc.conn.Close()
+	return nil
+}
+
+func (c *Connection) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+func (c *Connection) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.conn != nil {
+		return c.conn.Close()
 	}
 	return nil
 }
