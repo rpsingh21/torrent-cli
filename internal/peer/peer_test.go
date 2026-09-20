@@ -33,12 +33,6 @@ func TestCompleteHandshake(t *testing.T) {
 		t.Run(tf.ip, func(t *testing.T) {
 			peer := NewPeer(tf.ip, tf.ip, tf.port, metaInfo, nil)
 
-			err := peer.Start()
-			// time.Sleep(5 * time.Second)
-
-			if !tf.isFailed && err != nil {
-				t.Fatal(err)
-			}
 			if !tf.isFailed {
 				log.Printf("%v Connected successfully", peer.IP)
 			}

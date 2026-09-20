@@ -40,7 +40,6 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 					st.strategy,
 					nil,
 				)
-				defer manager.Close()
 
 				bf := bitfield.NewBitfield(pieceCount)
 				bf.SetIndex(pieceCount - 1)
@@ -80,7 +79,6 @@ func BenchmarkManager10Cent(b *testing.B) {
 					st.strategy,
 					nil,
 				)
-				defer manager.Close()
 
 				bf := peerWith10CentBits(pieceCount * 10)
 				manager.AddPeer("peer", bf)

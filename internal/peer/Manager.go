@@ -1,17 +1,20 @@
 package peer
 
 import (
+	"context"
 	"log"
+	"net"
+	"strconv"
+	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/piece"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-// Load from config
 const (
-	MAX_PEERS         = 80
+	MAX_PEERS         = 100
 	REQUESTS_PER_PEER = 32
-	REQUEST_TIMEOUT   = 5
+	REQUEST_TIMEOUT   = 30
 )
 
 type Manager struct {
@@ -20,47 +23,98 @@ type Manager struct {
 	removePeerChan chan *Peer
 	metaInfo       *torrent.MetaInfo
 	pieceManager   *piece.Manager
+	mu             sync.Mutex
+	peersWG        sync.WaitGroup
 }
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
 	return &Manager{
 		activePeer:     make(map[string]*Peer),
-		PeerChan:       make(chan *Peer, 10),
-		removePeerChan: make(chan *Peer, 5),
+		PeerChan:       make(chan *Peer, 128),
+		removePeerChan: make(chan *Peer, 128),
 		metaInfo:       metaInfo,
 		pieceManager:   pieceManager,
 	}
 }
 
-func (m *Manager) Run() {
+func (m *Manager) Run(ctx context.Context) error {
 	for {
 		select {
-		case peer := <-m.PeerChan:
-			log.Printf("Adding new Peer %v : %v", peer.ID, peer.IP)
-			peer.pieceManager = m.pieceManager
-			m.AddPeer(peer)
-
-		case peer := <-m.removePeerChan:
-			m.removePeer(peer)
+		case <-ctx.Done():
+			m.Close()
+			m.peersWG.Wait()
+			return ctx.Err()
+		case p := <-m.PeerChan:
+			if p == nil {
+				continue
+			}
+			m.addPeer(ctx, p)
+		case p := <-m.removePeerChan:
+			m.removePeer(p)
 		}
 	}
 }
 
-func (m *Manager) AddPeer(peer *Peer) {
-	peer.removeChan = m.removePeerChan
-	peer.metaInfo = m.metaInfo
-	go peer.Start()
+func (m *Manager) addPeer(ctx context.Context, p *Peer) {
+	key := p.Key()
+	m.mu.Lock()
+	if _, exists := m.activePeer[key]; exists || len(m.activePeer) >= MAX_PEERS {
+		m.mu.Unlock()
+		return
+	}
+	p.metaInfo = m.metaInfo
+	p.pieceManager = m.pieceManager
+	p.removeChan = m.removePeerChan
+	m.activePeer[key] = p
+	m.mu.Unlock()
 
-	m.activePeer[peer.ID] = peer
+	m.peersWG.Add(1)
+	go func() {
+		defer m.peersWG.Done()
+		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("peer %s failed: %v", key, err)
+		}
+		select {
+		case m.removePeerChan <- p:
+		case <-ctx.Done():
+		}
+	}()
 }
 
-func (m *Manager) removePeer(peer *Peer) {
-	m.pieceManager.RemovePeer(peer.ID)
-	delete(m.activePeer, peer.ID)
+func (m *Manager) removePeer(p *Peer) {
+	if p == nil {
+		return
+	}
+	key := p.Key()
+
+	m.mu.Lock()
+	if _, ok := m.activePeer[key]; ok {
+		delete(m.activePeer, key)
+	}
+	m.mu.Unlock()
+
+	m.pieceManager.RemovePeer(p.schedulerID())
 }
 
 func (m *Manager) Close() {
-	for _, peer := range m.activePeer {
-		peer.Close()
+	m.mu.Lock()
+	peers := make([]*Peer, 0, len(m.activePeer))
+	for _, p := range m.activePeer {
+		peers = append(peers, p)
 	}
+	m.mu.Unlock()
+
+	for _, p := range peers {
+		_ = p.Close()
+	}
+}
+
+func (m *Manager) ActivePeers() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.activePeer)
+}
+
+func (m *Manager) peerKey(p *Peer) string {
+	return net.JoinHostPort(p.IP, strconv.Itoa(int(p.Port)))
 }
