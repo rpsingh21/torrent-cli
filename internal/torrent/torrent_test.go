@@ -16,6 +16,7 @@ func TestTorrentFile(t *testing.T) {
 		t.Errorf("Ancounter error while decoding torrent file %v", err)
 	}
 	fmt.Println(hex.EncodeToString(nt.InfoHash[:]))
+	fmt.Printf("%+v", nt)
 }
 
 func TestSingleTorrentFile(t *testing.T) {

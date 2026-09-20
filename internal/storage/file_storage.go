@@ -84,7 +84,6 @@ func (f *FileStorage) WriteAt(p []byte, offset int64) (int, error) {
 }
 
 // ReadPiece(index int, dst []byte) error
-
 func (fs *FileStorage) WritePiece(index int, src []byte) error {
 	pieceStart := int64(index) * fs.metaInfo.PieceLength
 	pieceEnd := pieceStart + int64(len(src))

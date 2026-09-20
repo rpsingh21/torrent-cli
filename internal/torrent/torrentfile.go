@@ -66,6 +66,7 @@ func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 	}
 
 	torrent.Files, torrent.TotalSize = parseFiles(info, torrent.Length, torrent.Name)
+	torrent.TotalPices = len(torrent.PieceHashes)
 
 	return torrent, nil
 }
