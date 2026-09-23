@@ -41,6 +41,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 		}
 	} else {
 		log.Printf("Initial tracker announce failed: %v", err)
+		interval = 5 * time.Second
 	}
 
 	timer := time.NewTimer(interval)
@@ -50,7 +51,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			// Best effort: do not block shutdown on a tracker.
-			stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			if err := d.updatePeersFromTracker(stopCtx, "Stopped"); err != nil {
 				log.Printf("Stopped tracker announce failed: %v", err)
@@ -60,11 +61,8 @@ func (d *Discovery) Start(ctx context.Context) error {
 			if err := d.updatePeersFromTracker(ctx, ""); err != nil && ctx.Err() == nil {
 				log.Printf("Tracker announce failed: %v", err)
 			}
-			interval = d.interval
-			if interval <= 0 {
-				interval = 15 * time.Minute
-			}
-			timer.Reset(interval)
+
+			timer.Reset(d.interval)
 		}
 	}
 }
@@ -75,7 +73,8 @@ func (d *Discovery) updatePeersFromTracker(ctx context.Context, event string) er
 		return err
 	}
 	if res.Interval > 0 {
-		d.interval = time.Duration(res.Interval) * time.Second
+		// d.interval = time.Duration(res.Interval) * time.Second
+		d.interval = 15 * time.Minute
 	}
 
 	for _, p := range res.Peers {

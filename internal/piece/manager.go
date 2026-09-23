@@ -8,6 +8,7 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/storage"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
+	"github.com/rpsingh21/torrent-cli/pkg/datastructure"
 )
 
 const (
@@ -25,6 +26,10 @@ type Manager struct {
 	next         int
 	mu           sync.Mutex
 	storage      storage.Storage
+	releaseQue   *datastructure.Queue[int]
+
+	completed  int
+	inprogress int
 }
 
 func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Storage) *Manager {
@@ -50,8 +55,15 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Strategy:     strategy,
 		storage:      store,
+		releaseQue:   datastructure.NewQueue[int](),
 	}
 
+}
+
+func (m *Manager) GetStat() (int, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.completed, m.inprogress
 }
 
 func buildBlocks(pieceID, pieceSize int) []Block {
@@ -75,6 +87,10 @@ func (m *Manager) NextBlock(peerID string) *Block {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.nextNewBlock(peerID)
+}
+
+func (m *Manager) nextNewBlock(peerID string) *Block {
 	pieceIndex := m.Pick(peerID)
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return nil
@@ -88,6 +104,8 @@ func (m *Manager) NextBlock(peerID string) *Block {
 	block.Requested = true
 	block.RequestedBy = peerID
 	block.startedAt = time.Now()
+
+	m.releaseQue.Push(block.Piece)
 
 	return block
 }
@@ -108,6 +126,7 @@ func (m *Manager) ReleaseBlock(peerID string, pieceIndex, offset int) bool {
 	block.Requested = false
 	block.RequestedBy = ""
 	block.startedAt = time.Time{}
+
 	return true
 }
 
@@ -124,6 +143,8 @@ func (m *Manager) RemovePeer(peerID string) {
 				b.Requested = false
 				b.RequestedBy = ""
 				b.startedAt = time.Time{}
+
+				m.releaseQue.Push(b.Piece)
 			}
 		}
 	}
@@ -209,6 +230,8 @@ func (m *Manager) CompletePiece(index int) error {
 	m.mu.Lock()
 	p.Verifying = false
 	m.Have.SetIndex(index)
+
+	m.completed++
 
 	p.Blocks = nil // persisted successfully; release the piece buffer
 	m.mu.Unlock()

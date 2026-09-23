@@ -95,7 +95,7 @@ func (p *Peer) Start(parent context.Context) error {
 		return err
 	}
 
-	if err := p.Connection.WriteMessage(&Message{ID: MsgInterested}); err != nil {
+	if _, err := p.Connection.WriteMessage(&Message{ID: MsgInterested}); err != nil {
 		return err
 	}
 
@@ -142,13 +142,20 @@ func (p *Peer) fillRequests() error {
 			break
 		}
 		key := requestKey{piece: block.Piece, offset: block.Offset}
-		if err := p.Connection.WriteMessage(&Message{
+
+		// ToDo: It can create inline?
+		message := &Message{
 			ID:      MsgRequest,
 			Payload: (&Request{Index: uint32(block.Piece), Begin: uint32(block.Offset), Length: uint32(block.Length)}).Encode(),
-		}); err != nil {
+		}
+
+		if n, err := p.Connection.WriteMessage(message); err != nil {
 			p.pieceManager.ReleaseBlock(p.schedulerID(), block.Piece, block.Offset)
 			return err
+		} else {
+			p.stat.AddUploaded(n)
 		}
+
 		p.pendingMu.Lock()
 		p.pending[key] = time.Now()
 		p.pendingMu.Unlock()

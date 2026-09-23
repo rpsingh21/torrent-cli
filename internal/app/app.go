@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"path"
 	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/discovery"
@@ -23,6 +24,11 @@ func NewAppFromTorrentFile(tfPath, outputDir string) (*App, error) {
 	metaInfo, err := torrent.NewTorrentDetailFromFile(tfPath)
 	if err != nil {
 		return nil, err
+	}
+
+	// Todo: Add safe dir create in storage.
+	if metaInfo.Name != "" {
+		outputDir = path.Join(outputDir, metaInfo.Name)
 	}
 
 	return &App{
@@ -45,6 +51,7 @@ func (a *App) Download(ctx context.Context) error {
 	}()
 
 	pieceManager := piece.NewManager(a.metaInfo, piece.StrategySequential, store)
+	// pieceManager := piece.NewManager(a.metaInfo, piece.StrategyRarestFirst, store)
 	peerManager := peer.NewManager(a.metaInfo, pieceManager)
 	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
 

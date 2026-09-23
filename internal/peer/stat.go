@@ -31,6 +31,12 @@ func (s *Stat) AddDownloaded(n int) {
 	s.mu.Unlock()
 }
 
+func (s *Stat) AddUploaded(n int) {
+	s.mu.Lock()
+	s.Uploaded += int64(n)
+	s.mu.Unlock()
+}
+
 func (s *Stat) IncRequestsSent() {
 	s.mu.Lock()
 	s.RequestsSent++

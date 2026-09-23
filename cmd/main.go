@@ -15,16 +15,18 @@ import (
 )
 
 func main() {
-
-	// Only Debug
-	go func() {
-		log.Println("pprof: http://localhost:6060/debug/pprof/")
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
-
+	pprof := flag.Bool("pprof", false, "Set to enbale profiler")
 	torrentFilePath := flag.String("tf", "", "Path of torrent file")
 	out := flag.String("out", "./output", "Dir where want to store downloaded files")
 	flag.Parse()
+
+	// Only Debug enabled if pass -pprof flag
+	if *pprof {
+		go func() {
+			log.Println("pprof: http://localhost:6060/debug/pprof/")
+			log.Println(http.ListenAndServe("localhost:6060", nil))
+		}()
+	}
 
 	if *torrentFilePath == "" {
 		log.Fatal("Please provide a torrent file with -tf")
