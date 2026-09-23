@@ -102,7 +102,11 @@ func ParsePiece(payload []byte) (*Piece, error) {
 		return nil, fmt.Errorf("invalid piece payload: length %d", len(payload))
 	}
 
-	return &Piece{Index: binary.BigEndian.Uint32(payload[:4]), Begin: binary.BigEndian.Uint32(payload[4:8]), Data: payload[8:]}, nil
+	return &Piece{
+		Index: binary.BigEndian.Uint32(payload[:4]),
+		Begin: binary.BigEndian.Uint32(payload[4:8]),
+		Data:  payload[8:],
+	}, nil
 }
 
 func (r *Request) Encode() []byte {

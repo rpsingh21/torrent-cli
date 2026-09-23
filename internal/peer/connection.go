@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const maxPeerMessageLength = 4 * 1024 * 1024
+const maxPeerMessageLength = 2 * 1024 * 1024
 
 type Connection struct {
 	remoteID string
@@ -37,7 +37,7 @@ func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, app
 }
 
 func (c *Connection) Handshake() error {
-	if err := c.writeAll(NewHandshake(c.infoHash, c.appID).Encode()); err != nil {
+	if _, err := c.writeAll(NewHandshake(c.infoHash, c.appID).Encode()); err != nil {
 		return fmt.Errorf("write handshake: %w", err)
 	}
 
@@ -81,25 +81,33 @@ func (c *Connection) ReadMessage() (*Message, error) {
 	return ParseMessage(messageBuf)
 }
 
-func (c *Connection) WriteMessage(m *Message) error {
-	if err := c.writeAll(m.EncodeMessage()); err != nil {
-		return fmt.Errorf("write %s: %w", m.String(), err)
+func (c *Connection) WriteMessage(m *Message) (int, error) {
+	n, err := c.writeAll(m.EncodeMessage())
+	if err != nil {
+		return 0, fmt.Errorf("write %s: %w", m.String(), err)
 	}
-	return nil
+	return n, nil
 }
 
-func (c *Connection) writeAll(data []byte) error {
+func (c *Connection) writeAll(data []byte) (int, error) {
+	total := 0
+
 	for len(data) > 0 {
 		n, err := c.conn.Write(data)
+		total += n
+
 		if err != nil {
-			return err
+			return total, err
 		}
+
 		if n == 0 {
-			return io.ErrShortWrite
+			return total, io.ErrShortWrite
 		}
+
 		data = data[n:]
 	}
-	return nil
+
+	return total, nil
 }
 
 func (c *Connection) SetReadDeadline(t time.Time) error {
