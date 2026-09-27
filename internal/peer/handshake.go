@@ -21,11 +21,15 @@ type Handshake struct {
 }
 
 func NewHandshake(infoHash [20]byte, peerID [20]byte) *Handshake {
-	return &Handshake{
+	h := &Handshake{
 		Pstr:     BitTorrentProtocol,
 		InfoHash: infoHash,
 		PeerID:   peerID,
 	}
+
+	h.EnableExtensions()
+
+	return h
 }
 
 func (h *Handshake) Encode() []byte {

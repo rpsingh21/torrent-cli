@@ -8,7 +8,6 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/storage"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
-	"github.com/rpsingh21/torrent-cli/pkg/datastructure"
 )
 
 const (
@@ -26,7 +25,8 @@ type Manager struct {
 	next         int
 	mu           sync.Mutex
 	storage      storage.Storage
-	releaseQue   *datastructure.Queue[int]
+	ReleaseQue   map[int]any
+	// releaseQue   *datastructure.Queue[int]
 
 	completed  int
 	inprogress int
@@ -55,7 +55,8 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Strategy:     strategy,
 		storage:      store,
-		releaseQue:   datastructure.NewQueue[int](),
+		// releaseQue:   datastructure.NewQueue[int](),
+		ReleaseQue: make(map[int]any),
 	}
 
 }
@@ -105,7 +106,8 @@ func (m *Manager) nextNewBlock(peerID string) *Block {
 	block.RequestedBy = peerID
 	block.startedAt = time.Now()
 
-	m.releaseQue.Push(block.Piece)
+	// m.releaseQue.Push(block.Piece)
+	// m.ReleaseQue[block.Piece] = 0
 
 	return block
 }
@@ -126,6 +128,7 @@ func (m *Manager) ReleaseBlock(peerID string, pieceIndex, offset int) bool {
 	block.Requested = false
 	block.RequestedBy = ""
 	block.startedAt = time.Time{}
+	m.ReleaseQue[block.Piece] = 0
 
 	return true
 }
@@ -144,7 +147,8 @@ func (m *Manager) RemovePeer(peerID string) {
 				b.RequestedBy = ""
 				b.startedAt = time.Time{}
 
-				m.releaseQue.Push(b.Piece)
+				// m.releaseQue.Push(b.Piece)
+				m.ReleaseQue[b.Piece] = 0
 			}
 		}
 	}

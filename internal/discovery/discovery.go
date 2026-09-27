@@ -29,6 +29,30 @@ func New(metaInfo *torrent.MetaInfo, defaultInterval int, peerChan chan *peer.Pe
 	return d
 }
 
+func UpdatePeerUDP(ctx context.Context, metaInfo *torrent.MetaInfo, peerChan chan *peer.Peer) error {
+	interval := 1 * time.Second
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			res, err := tracker.AnnounceUPD(metaInfo, 6881)
+			if err != nil {
+				timer.Reset(5 * time.Second)
+			} else {
+				for _, p := range res.Peers {
+					peerChan <- p
+				}
+				timer.Reset(15 * time.Minute)
+			}
+		}
+	}
+}
+
 func (d *Discovery) Start(ctx context.Context) error {
 	if d.tracker == nil {
 		return nil

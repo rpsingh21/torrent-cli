@@ -15,7 +15,9 @@ import (
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
-const KEEPALIVE_TIMEOUT = 2 * time.Minute
+const KEEPALIVE_TIMEOUT = 30 * time.Second
+
+// const KEEPALIVE_TIMEOUT = 2 * time.Minute
 
 type requestKey struct {
 	piece  int
@@ -40,6 +42,8 @@ type Peer struct {
 	pendingMu        sync.Mutex
 	ctx              context.Context
 	cancel           context.CancelFunc
+
+	pendingMessage chan Message
 }
 
 func NewPeer(id, ip string, port uint16, metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Peer {
@@ -91,7 +95,7 @@ func (p *Peer) Start(parent context.Context) error {
 	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
 	defer p.Connection.Close()
 
-	if err := p.Connection.Handshake(); err != nil {
+	if _, err := p.Connection.Handshake(); err != nil {
 		return err
 	}
 
@@ -229,6 +233,11 @@ func (p *Peer) handleMessage(message *Message) error {
 				log.Printf("piece %d rejected: %v", block.Index, err)
 			}
 		}
+	case MsgExtended:
+		// if err := p.handleExtendedMessage(message); err != nil {
+		// 	return err
+		// }
+		log.Printf("Extened message %v", message.name())
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:
 		log.Println("Upload-side messages are intentionally ignored in this download-only beta.")
 		// Upload-side messages are intentionally ignored in this download-only beta.

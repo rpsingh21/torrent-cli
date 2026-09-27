@@ -17,6 +17,7 @@ import (
 func main() {
 	pprof := flag.Bool("pprof", false, "Set to enbale profiler")
 	torrentFilePath := flag.String("tf", "", "Path of torrent file")
+	magnetLink := flag.String("m", "", "Magnet link")
 	out := flag.String("out", "./output", "Dir where want to store downloaded files")
 	flag.Parse()
 
@@ -28,10 +29,6 @@ func main() {
 		}()
 	}
 
-	if *torrentFilePath == "" {
-		log.Fatal("Please provide a torrent file with -tf")
-	}
-
 	outputDir, err := filepath.Abs(*out)
 	if err != nil {
 		log.Fatal(err)
@@ -40,7 +37,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
+	// app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
+	app, err := app.NewAppFromMagnetLink(*magnetLink, outputDir)
 	if err != nil {
 		log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
 	}

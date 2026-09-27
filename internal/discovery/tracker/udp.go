@@ -15,7 +15,7 @@ import (
 
 const protocolID = 0x41727101980
 
-func announce(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
+func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 	UDP_URL := strings.TrimPrefix(metaInfo.Announce, "udp://")
 
 	if i := strings.Index(UDP_URL, "/"); i != -1 {
@@ -110,6 +110,6 @@ func announce(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 		Interval: 0,
 		Peers:    peers,
 	}
-	log.Printf("Total peers from UDP %+v", response)
+	log.Printf("Total peers from UDP %v", response)
 	return response, nil
 }

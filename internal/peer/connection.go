@@ -36,27 +36,27 @@ func NewConnection(parent context.Context, conn net.Conn, infoHash [20]byte, app
 	}
 }
 
-func (c *Connection) Handshake() error {
+func (c *Connection) Handshake() (*Handshake, error) {
 	if _, err := c.writeAll(NewHandshake(c.infoHash, c.appID).Encode()); err != nil {
-		return fmt.Errorf("write handshake: %w", err)
+		return nil, fmt.Errorf("write handshake: %w", err)
 	}
 
 	buf := make([]byte, 68)
 	if _, err := io.ReadFull(c.reader, buf); err != nil {
-		return fmt.Errorf("read handshake: %w", err)
+		return nil, fmt.Errorf("read handshake: %w", err)
 	}
 
-	remote, err := DecodeHandshakeMsg(buf)
+	remoteHs, err := DecodeHandshakeMsg(buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if remote.InfoHash != c.infoHash {
-		return fmt.Errorf("info hash mismatch")
+	if remoteHs.InfoHash != c.infoHash {
+		return nil, fmt.Errorf("info hash mismatch")
 	}
 
-	c.remoteID = string(remote.PeerID[:])
-	return nil
+	c.remoteID = string(remoteHs.PeerID[:])
+	return remoteHs, nil
 }
 
 func (c *Connection) ReadMessage() (*Message, error) {

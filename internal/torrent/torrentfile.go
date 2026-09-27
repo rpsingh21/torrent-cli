@@ -71,6 +71,33 @@ func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 	return torrent, nil
 }
 
+func UpdateInfo(metaInfo *MetaInfo, info map[string]any) error {
+	if name, ok := info["name"].([]byte); ok {
+		metaInfo.Name = string(name)
+	}
+
+	if length, ok := info["length"].(int64); ok {
+		metaInfo.Length = length
+	}
+
+	if pieceLength, ok := info["piece length"].(int64); ok {
+		metaInfo.PieceLength = pieceLength
+	}
+
+	if pieces, ok := info["pieces"].([]byte); ok {
+		hashes, err := splitPieceHashes(pieces)
+		if err != nil {
+			return err
+		}
+		metaInfo.PieceHashes = hashes
+	}
+
+	metaInfo.Files, metaInfo.TotalSize = parseFiles(info, metaInfo.Length, metaInfo.Name)
+	metaInfo.TotalPices = len(metaInfo.PieceHashes)
+
+	return nil
+}
+
 func parseFiles(info map[string]any, length int64, name string) ([]TFile, int64) {
 	files, ok := info["files"].([]any)
 	var totalSize int64
