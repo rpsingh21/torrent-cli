@@ -54,6 +54,10 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			m.Close()
 			m.peersWG.Wait()
+
+			// Todo: will remove once CLI
+			log.Println("")
+
 			return ctx.Err()
 		case p := <-m.PeerChan:
 			if p == nil {

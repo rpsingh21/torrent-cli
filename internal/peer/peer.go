@@ -172,8 +172,10 @@ func (p *Peer) handleMessage(message *Message) error {
 	case MsgChoke:
 		p.Choked = true
 		p.releaseAllPending()
+
 	case MsgUnchoke:
 		p.Choked = false
+
 	case MsgBitfield:
 		wantBytes := (p.pieceManager.Metainfo.TotalPices + 7) / 8
 		if len(message.Payload) != wantBytes {
@@ -185,6 +187,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 		p.bitfield = bf
 		p.pieceManager.AddPeer(p.schedulerID(), bf)
+
 	case MsgHave:
 		if len(message.Payload) != 4 || p.bitfield == nil {
 			return fmt.Errorf("invalid have message from %s", p.Key())
@@ -197,15 +200,18 @@ func (p *Peer) handleMessage(message *Message) error {
 			p.bitfield.SetIndex(int(pieceIndex))
 			p.pieceManager.PeerHasPiece(p.schedulerID(), int(pieceIndex))
 		}
+
 	case MsgHaveAll:
 		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		for i := 0; i < p.pieceManager.Metainfo.TotalPices; i++ {
 			p.bitfield.SetIndex(i)
 		}
 		p.pieceManager.AddPeer(p.schedulerID(), p.bitfield)
+
 	case MsgHaveNone:
 		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		p.pieceManager.AddPeer(p.schedulerID(), p.bitfield)
+
 	case MsgPiece:
 		block, err := ParsePiece(message.Payload)
 		if err != nil {
@@ -225,24 +231,22 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 		p.pendingMu.Unlock()
 
+		// Todo: Refactor pending section
 		if !pending {
 			// Downgrade from a fatal error to a simple log.
 			// The request timed out, but the peer eventually sent it anyway.
 			p.lateBlocks++
 
 			// This limit optimize
-			if p.lateBlocks > 10 {
+			if p.lateBlocks > 5 {
 				// Drop the peer completely for wasting bandwidth
 				return fmt.Errorf("peer is too slow and sent too many expired blocks, dropping connection")
 			}
 
-			log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+			// log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
 			return nil
 		}
 
-		// if !pending {
-		// 	return fmt.Errorf("unsolicited piece block %d/%d from %s", block.Index, block.Begin, p.Key())
-		// }
 		if !p.pieceManager.CompleteBlock(p.schedulerID(), int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Key())
 		}
@@ -254,15 +258,18 @@ func (p *Peer) handleMessage(message *Message) error {
 				log.Printf("piece %d rejected: %v", block.Index, err)
 			}
 		}
+
 	case MsgExtended:
 		// if err := p.handleExtendedMessage(message); err != nil {
 		// 	return err
 		// }
-		log.Printf("Extened message %v", message.name())
+		log.Printf("extened message %v", message.name())
+
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:
-		log.Println("Upload-side messages are intentionally ignored in this download-only beta.")
+		log.Println("upload-side messages are intentionally ignored in this download-only beta.")
 		// Upload-side messages are intentionally ignored in this download-only beta.
 	}
+
 	return nil
 }
 
@@ -291,6 +298,7 @@ func (p *Peer) dropPendingPiece(pieceIndex int) {
 		}
 	}
 	p.pendingMu.Unlock()
+
 	for _, key := range keys {
 		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
 	}
@@ -313,6 +321,7 @@ func (p *Peer) expireRequests() {
 		}
 	}
 	p.pendingMu.Unlock()
+
 	for _, key := range expired {
 		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
 		p.stat.IncTimeouts()
@@ -327,6 +336,7 @@ func (p *Peer) releaseAllPending() {
 	}
 	clear(p.pending)
 	p.pendingMu.Unlock()
+
 	for _, key := range pending {
 		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
 	}
@@ -336,6 +346,7 @@ func (p *Peer) Close() error {
 	if p.cancel != nil {
 		p.cancel()
 	}
+
 	p.releaseAllPending()
 	if p.Connection != nil {
 		return p.Connection.Close()

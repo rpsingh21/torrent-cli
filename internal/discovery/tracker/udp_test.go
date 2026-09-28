@@ -2,7 +2,6 @@ package tracker
 
 import (
 	"log"
-	"sync"
 	"testing"
 
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
@@ -24,20 +23,5 @@ func TestUDPAnnoucer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-
-	for _, p := range res.Peers {
-		wg.Go(func() {
-			t.Run(p.Key(), func(t *testing.T) {
-				data, err := p.DownloadMetadata(t.Context(), metaInfo)
-				if err != nil {
-					t.Logf("----------------------------------------------------------------%v", err)
-				} else {
-					log.Printf("Data ================> %v", data)
-				}
-			})
-		})
-	}
-
-	wg.Wait()
+	log.Printf("Total peers: %+v", res)
 }

@@ -3,7 +3,6 @@ package tracker
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"strings"
@@ -110,6 +109,6 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 		Interval: 0,
 		Peers:    peers,
 	}
-	log.Printf("Total peers from UDP %v", response)
+	// log.Printf("Total peers from UDP %v", response)
 	return response, nil
 }

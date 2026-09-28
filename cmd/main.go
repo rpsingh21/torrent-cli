@@ -37,14 +37,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
-	app, err := app.NewAppFromMagnetLink(*magnetLink, outputDir)
-	if err != nil {
-		log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
-	}
+	if *torrentFilePath != "" {
+		app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
+		if err != nil {
+			log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
+		}
 
-	if err := app.Download(ctx); err != nil {
-		log.Fatalf("Download failed: %v", err)
+		if err := app.Download(ctx); err != nil {
+			log.Fatalf("Download failed: %v", err)
+		}
+	} else if *magnetLink != "" {
+		app, err := app.NewAppFromMagnetLink(*magnetLink, outputDir)
+		if err != nil {
+			log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
+		}
+
+		if err := app.Download(ctx); err != nil {
+			log.Fatalf("Download failed: %v", err)
+		}
+	} else {
+		log.Printf("Torrent file or Magnet link require")
 	}
 
 	log.Printf("Torrent downloaded successfully: %s", outputDir)

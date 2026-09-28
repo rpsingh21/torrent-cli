@@ -125,8 +125,6 @@ func NewAppFromMagnetLink(url, outputDir string) (*App, error) {
 }
 
 func (a *App) Download(ctx context.Context) error {
-	// log.Printf("App updated info %+v", a.metaInfo)
-
 	store, err := storage.NewFileStorage(a.metaInfo, a.outputDir)
 	if err != nil {
 		return err
@@ -141,12 +139,13 @@ func (a *App) Download(ctx context.Context) error {
 	pieceManager := piece.NewManager(a.metaInfo, piece.StrategySequential, store)
 	// pieceManager := piece.NewManager(a.metaInfo, piece.StrategyRarestFirst, store)
 	peerManager := peer.NewManager(a.metaInfo, pieceManager)
-	// discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
+	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 2)
-	go func() { done <- discovery.UpdatePeerUDP(runCtx, a.metaInfo, peerManager.PeerChan) }()
+	go func() { done <- discovery.Start(runCtx) }()
+	// go func() { done <- discovery.UpdatePeerUDP(runCtx, a.metaInfo, peerManager.PeerChan) }()
 	go func() { done <- peerManager.Run(runCtx) }()
 
 	completed := false
