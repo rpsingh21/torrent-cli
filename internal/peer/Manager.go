@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	MAX_PEERS         = 100
+	MAX_PEERS         = 1000
 	REQUESTS_PER_PEER = 64
 	REQUEST_TIMEOUT   = 10
 )

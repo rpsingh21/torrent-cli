@@ -42,8 +42,8 @@ type Peer struct {
 	pendingMu        sync.Mutex
 	ctx              context.Context
 	cancel           context.CancelFunc
-
-	pendingMessage chan Message
+	lateBlocks       int
+	pendingMessage   chan Message
 }
 
 func NewPeer(id, ip string, port uint16, metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Peer {
@@ -106,6 +106,8 @@ func (p *Peer) Start(parent context.Context) error {
 	p.Interested = true
 	p.Choked = true
 
+	go p.requestExpirationLoop()
+
 	return p.messageLoop()
 }
 
@@ -114,15 +116,12 @@ func (p *Peer) messageLoop() error {
 		if err := p.fillRequests(); err != nil {
 			return err
 		}
-		p.Connection.SetReadDeadline(p.nextReadDeadline())
+
+		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
 
 		message, err := p.Connection.ReadMessage()
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				p.expireRequests()
-				continue
-			}
-			return err
+			return fmt.Errorf("read error or keepalive timeout: %w", err)
 		}
 
 		if message == nil {
@@ -217,11 +216,33 @@ func (p *Peer) handleMessage(message *Message) error {
 		_, pending := p.pending[key]
 		if pending {
 			delete(p.pending, key)
+
+			// REFRESH TIMEOUTS: The peer is actively sending data.
+			now := time.Now()
+			for k := range p.pending {
+				p.pending[k] = now
+			}
 		}
 		p.pendingMu.Unlock()
+
 		if !pending {
-			return fmt.Errorf("unsolicited piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+			// Downgrade from a fatal error to a simple log.
+			// The request timed out, but the peer eventually sent it anyway.
+			p.lateBlocks++
+
+			// This limit optimize
+			if p.lateBlocks > 10 {
+				// Drop the peer completely for wasting bandwidth
+				return fmt.Errorf("peer is too slow and sent too many expired blocks, dropping connection")
+			}
+
+			log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+			return nil
 		}
+
+		// if !pending {
+		// 	return fmt.Errorf("unsolicited piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+		// }
 		if !p.pieceManager.CompleteBlock(p.schedulerID(), int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Key())
 		}
@@ -245,6 +266,21 @@ func (p *Peer) handleMessage(message *Message) error {
 	return nil
 }
 
+func (p *Peer) requestExpirationLoop() {
+	// Check for expired requests every few seconds
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.expireRequests()
+		}
+	}
+}
+
 func (p *Peer) dropPendingPiece(pieceIndex int) {
 	p.pendingMu.Lock()
 	var keys []requestKey
@@ -264,19 +300,6 @@ func (p *Peer) pendingCount() int {
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
 	return len(p.pending)
-}
-
-func (p *Peer) nextReadDeadline() time.Time {
-	deadline := time.Now().Add(KEEPALIVE_TIMEOUT)
-	p.pendingMu.Lock()
-	for _, started := range p.pending {
-		d := started.Add(REQUEST_TIMEOUT * time.Second)
-		if d.Before(deadline) {
-			deadline = d
-		}
-	}
-	p.pendingMu.Unlock()
-	return deadline
 }
 
 func (p *Peer) expireRequests() {

@@ -30,10 +30,12 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 	if err != nil {
 		return nil, err
 	}
-	// defer conn.Close()
+	defer conn.Close()
 
 	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-	// defer p.Connection.Close()
+
+	// Todo flatan connection object
+	defer p.Connection.Close()
 
 	peerHs, err := p.Connection.Handshake()
 	if err != nil {
@@ -70,7 +72,8 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 	handshakeReceived := false
 
 	for {
-		p.Connection.SetReadDeadline(p.nextReadDeadline())
+		// p.Connection.SetReadDeadline(p.nextReadDeadline())
+		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
 
 		message, err := p.Connection.ReadMessage()
 		if err != nil {
@@ -115,10 +118,7 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 			metadataBuf = make([]byte, metadataSize)
 			received = make([]bool, pieceCount)
 
-			log.Printf(
-				"peer metadata: size=%d pieces=%d ut_metadata=%d",
-				metadataSize, pieceCount, peerMetadataExtID,
-			)
+			// log.Printf("peer metadata: size=%d pieces=%d ut_metadata=%d", metadataSize, pieceCount, peerMetadataExtID)
 
 			// Request ONLY the first piece to avoid flood protection disconnects.
 			if pieceCount > 0 {
@@ -230,7 +230,7 @@ func (p *Peer) ExtendedHandshake() error {
 		return fmt.Errorf("extended handshake failed: %w", err)
 	}
 
-	log.Printf("%s: sent extended handshake", p.IP)
+	// log.Printf("%s: sent extended handshake", p.IP)
 	return nil
 }
 
@@ -259,7 +259,7 @@ func (p *Peer) sendMetaRequest(peerMetadataExtID uint8, index int) error {
 		return fmt.Errorf("metadata piece request failed: %w", err)
 	}
 
-	log.Printf("metadata piece %d request sent", index)
+	// log.Printf("metadata piece %d request sent", index)
 
 	return nil
 }
@@ -299,7 +299,7 @@ func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, er
 		return 0, 0, fmt.Errorf("invalid ut_metadata extension ID: %d", utMetadataValue)
 	}
 
-	log.Printf("peer ut_metadata=%d metadata_size=%d", utMetadataValue, metadataSizeValue)
+	// log.Printf("peer ut_metadata=%d metadata_size=%d", utMetadataValue, metadataSizeValue)
 
 	return uint8(utMetadataValue), int(metadataSizeValue), nil
 }

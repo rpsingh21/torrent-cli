@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
@@ -60,26 +61,60 @@ func NewAppFromMagnetLink(url, outputDir string) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for _, peer := range resp.Peers {
-		// Todo: MetaInfo set while creating peers
-		data, err := peer.DownloadMetadata(ctx, metaInfo)
-		if err != nil {
-			log.Printf("Failed while dowlaoing metadata from %v err: %v", peer.IP, err)
-			continue
-		}
-		bdata, err := bencode.NewDecoder(data).Decode()
-		info, ok := bdata.(map[string]any)
-		if !ok {
-			continue
-		}
+	successChan := make(chan map[string]any, 1)
+	var wg sync.WaitGroup
+
+	for _, p := range resp.Peers {
+		wg.Add(1)
+		go func(pr *peer.Peer) {
+			defer wg.Done()
+
+			// Exit early if another peer already succeeded and cancelled the context
+			if ctx.Err() != nil {
+				return
+			}
+
+			data, err := pr.DownloadMetadata(ctx, metaInfo)
+			if err != nil {
+				log.Printf("Failed while downloading metadata from %v err: %v", pr.IP, err)
+				return
+			}
+
+			bdata, err := bencode.NewDecoder(data).Decode()
+			if err != nil {
+				return
+			}
+
+			info, ok := bdata.(map[string]any)
+			if !ok {
+				return
+			}
+
+			// Safely attempt to send the info.
+			// If another peer finished first and triggered cancel(), ctx.Done() will unblock this.
+			select {
+			case successChan <- info:
+			case <-ctx.Done():
+			}
+		}(p)
+	}
+
+	// Background goroutine to close the channel if ALL peers fail, preventing a deadlock.
+	go func() {
+		wg.Wait()
+		close(successChan)
+	}()
+
+	// Block until the first peer succeeds or all peers fail.
+	if info, ok := <-successChan; ok {
 		if err := torrent.UpdateInfo(metaInfo, info); err == nil {
-			log.Printf("Updated metainfo from peer %+v", metaInfo)
-			break
+			// log.Printf("Updated metainfo from peer %+v", metaInfo)
+			cancel() // This cancels the context, stopping all other in-flight peer dials in extensions.go
 		}
 	}
 
-	if metaInfo.PieceLength > 0 {
-		return nil, fmt.Errorf("Error doesn't find metainfo from peer")
+	if metaInfo.PieceLength <= 0 {
+		return nil, fmt.Errorf("Error doesn't find metainfo from peers")
 	}
 
 	return &App{
@@ -90,7 +125,7 @@ func NewAppFromMagnetLink(url, outputDir string) (*App, error) {
 }
 
 func (a *App) Download(ctx context.Context) error {
-	log.Printf("App updated info %+v", a.metaInfo)
+	// log.Printf("App updated info %+v", a.metaInfo)
 
 	store, err := storage.NewFileStorage(a.metaInfo, a.outputDir)
 	if err != nil {
