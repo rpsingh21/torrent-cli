@@ -19,6 +19,7 @@ import (
 // BEP-10: https://www.bittorrent.org/beps/bep_0010.html
 
 const metadataPieceSize = 16 * 1024
+const maxMetadataSize = 10 * 1024 * 1024
 
 func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo) ([]byte, error) {
 	address := p.Key()
@@ -30,12 +31,21 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
 
 	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-
-	// Todo flatan connection object
 	defer p.Connection.Close()
+
+	// Cancel the connection immediately when ctx is cancelled.
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Connection.Close()
+		case <-done:
+		}
+	}()
 
 	peerHs, err := p.Connection.Handshake()
 	if err != nil {
@@ -50,7 +60,7 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 		return nil, err
 	}
 
-	data, err := p.metadataLoop()
+	data, err := p.metadataLoop(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +68,7 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 	return data, nil
 }
 
-func (p *Peer) metadataLoop() ([]byte, error) {
+func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 	var (
 		peerMetadataExtID uint8
 		metadataSize      int
@@ -72,7 +82,6 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 	handshakeReceived := false
 
 	for {
-		// p.Connection.SetReadDeadline(p.nextReadDeadline())
 		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
 
 		message, err := p.Connection.ReadMessage()
@@ -94,7 +103,6 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 		}
 
 		// Extended message ID 0 is always the extended handshake.
-		// Extended message ID 0 is always the extended handshake.
 		if extMessage.ID == 0 {
 			// Prevent duplicate handshakes from resetting the download buffers
 			if handshakeReceived {
@@ -106,12 +114,8 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 				return nil, err
 			}
 
-			if metadataSize <= 0 {
-				return nil, fmt.Errorf("peer returned invalid metadata_size: %d", metadataSize)
-			}
-
 			if peerMetadataExtID == 0 {
-				return nil, fmt.Errorf("peer does not support ut_metadata")
+				return nil, fmt.Errorf("peer: %v does not support ut_metadata", p.IP)
 			}
 
 			pieceCount = (metadataSize + metadataPieceSize - 1) / metadataPieceSize
@@ -170,12 +174,16 @@ func (p *Peer) metadataLoop() ([]byte, error) {
 			received[pieceIdx] = true
 			receivedCount++
 
-			log.Printf("received metadata piece %d/%d", receivedCount, pieceCount)
+			log.Printf("peer: %v received metadata piece %d/%d", p.IP, receivedCount, pieceCount)
 
 			if receivedCount != pieceCount {
 				// Find and request the next unreceived piece sequentially
 				for i := 0; i < pieceCount; i++ {
 					if !received[i] {
+						if err := ctx.Err(); err != nil {
+							return nil, err
+						}
+
 						if err := p.sendMetaRequest(peerMetadataExtID, i); err != nil {
 							return nil, err
 						}
@@ -281,7 +289,7 @@ func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, er
 		return 0, 0, fmt.Errorf("extended handshake missing metadata_size: %v", data)
 	}
 
-	if metadataSizeValue <= 0 {
+	if metadataSizeValue <= 0 || metadataSizeValue > maxMetadataSize {
 		return 0, 0, fmt.Errorf("invalid metadata_size: %d", metadataSizeValue)
 	}
 

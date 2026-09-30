@@ -11,18 +11,6 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-// type Tracker struct {
-// 	MetaInfo *torrent.MetaInfo
-// 	client   *http.Client
-// }
-
-// func NewTracker(metaInfo *torrent.MetaInfo) *Tracker {
-// 	return &Tracker{
-// 		MetaInfo: metaInfo,
-// 		client:   &http.Client{Timeout: 15 * time.Second},
-// 	}
-// }
-
 func AnnounceHTTP(ctx context.Context, metaInfo *torrent.MetaInfo, event string) (*Response, error) {
 	url, err := metaInfo.BuildTrackerURL(event)
 	if err != nil {

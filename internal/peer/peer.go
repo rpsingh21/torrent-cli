@@ -139,6 +139,7 @@ func (p *Peer) fillRequests() error {
 		return nil
 	}
 
+	// Todo Limit dynamic (back pressure based on dowload limit)
 	for p.pendingCount() < REQUESTS_PER_PEER {
 		block := p.pieceManager.NextBlock(p.schedulerID())
 		if block == nil {
@@ -224,10 +225,10 @@ func (p *Peer) handleMessage(message *Message) error {
 			delete(p.pending, key)
 
 			// REFRESH TIMEOUTS: The peer is actively sending data.
-			now := time.Now()
-			for k := range p.pending {
-				p.pending[k] = now
-			}
+			// now := time.Now()
+			// for k := range p.pending {
+			// 	p.pending[k] = now
+			// }
 		}
 		p.pendingMu.Unlock()
 
@@ -237,8 +238,8 @@ func (p *Peer) handleMessage(message *Message) error {
 			// The request timed out, but the peer eventually sent it anyway.
 			p.lateBlocks++
 
-			// This limit optimize
-			if p.lateBlocks > 5 {
+			// This limit optimize (back pressure)
+			if p.lateBlocks > 0 {
 				// Drop the peer completely for wasting bandwidth
 				return fmt.Errorf("peer is too slow and sent too many expired blocks, dropping connection")
 			}
@@ -263,6 +264,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		// if err := p.handleExtendedMessage(message); err != nil {
 		// 	return err
 		// }
+		log.Println("")
 		log.Printf("extened message %v", message.name())
 
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:

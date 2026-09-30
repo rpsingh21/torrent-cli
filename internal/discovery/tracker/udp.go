@@ -12,6 +12,8 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
+// https://www.bittorrent.org/beps/bep_0015.html
+
 const protocolID = 0x41727101980
 
 func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
@@ -96,6 +98,8 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 		return nil, fmt.Errorf("announce: unexpected action %d", action)
 	}
 
+	interval := int(binary.BigEndian.Uint32(buf[8:12]))
+
 	peerCount := (n - 20) / 6
 	peers := make([]*peer.Peer, 0, peerCount)
 	for i := range peerCount {
@@ -106,7 +110,7 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 	}
 
 	response := &Response{
-		Interval: 0,
+		Interval: interval,
 		Peers:    peers,
 	}
 	// log.Printf("Total peers from UDP %v", response)

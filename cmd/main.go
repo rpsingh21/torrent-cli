@@ -47,7 +47,7 @@ func main() {
 			log.Fatalf("Download failed: %v", err)
 		}
 	} else if *magnetLink != "" {
-		app, err := app.NewAppFromMagnetLink(*magnetLink, outputDir)
+		app, err := app.NewAppFromMagnetLink(ctx, *magnetLink, outputDir)
 		if err != nil {
 			log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
 		}
@@ -56,7 +56,7 @@ func main() {
 			log.Fatalf("Download failed: %v", err)
 		}
 	} else {
-		log.Printf("Torrent file or Magnet link require")
+		log.Fatalf("Torrent file or Magnet link require")
 	}
 
 	log.Printf("Torrent downloaded successfully: %s", outputDir)
