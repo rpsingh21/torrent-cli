@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	MAX_PEERS         = 100
-	REQUESTS_PER_PEER = 64
+	MAX_PEERS         = 1000
+	REQUESTS_PER_PEER = 128
 	REQUEST_TIMEOUT   = 10
 )
 
@@ -55,13 +55,16 @@ func (m *Manager) Run(ctx context.Context) error {
 			m.Close()
 			m.peersWG.Wait()
 			return ctx.Err()
+
 		case p := <-m.PeerChan:
 			if p == nil {
 				continue
 			}
 			m.addPeer(ctx, p)
+
 		case p := <-m.removePeerChan:
 			m.removePeer(p)
+
 		case <-ticker.C:
 			now := time.Now()
 			elapsed := now.Sub(lastTime).Seconds()
@@ -91,7 +94,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			completed, inprogress := m.pieceManager.GetStat()
 
 			fmt.Printf(
-				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v) | %v]",
+				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | %v]",
 				totalPeer,
 				float64(download)/mbp,
 				downloadRate/mbp,
@@ -102,7 +105,8 @@ func (m *Manager) Run(ctx context.Context) error {
 				completed,
 				inprogress,
 				inprogress-completed,
-				m.metaInfo.TotalPices,
+				len(m.pieceManager.ReleaseQue), 0,
+				// m.pieceManager.ReleaseQue,
 			)
 		}
 	}

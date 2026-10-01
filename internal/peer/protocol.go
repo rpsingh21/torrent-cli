@@ -22,6 +22,7 @@ const (
 	MsgHaveAll
 	MsgHaveNone
 	MsgRejectRequest
+	MsgExtended MessageID = 20
 )
 
 type Message struct {
@@ -39,6 +40,11 @@ type Piece struct {
 	Index uint32
 	Begin uint32
 	Data  []byte
+}
+
+type ExtendedMessage struct {
+	ID      uint8
+	Payload []byte
 }
 
 func ParseMessage(data []byte) (*Message, error) {
@@ -78,6 +84,10 @@ func ParseMessage(data []byte) (*Message, error) {
 		if len(payload) != 4 {
 			return nil, fmt.Errorf("suggest payload length %d, want 4", len(payload))
 		}
+	case MsgExtended:
+		if len(payload) < 1 {
+			return nil, fmt.Errorf("extended message has empty payload")
+		}
 	}
 
 	return &Message{
@@ -107,6 +117,26 @@ func ParsePiece(payload []byte) (*Piece, error) {
 		Begin: binary.BigEndian.Uint32(payload[4:8]),
 		Data:  payload[8:],
 	}, nil
+}
+
+func ParseExtendedMessage(payload []byte) (*ExtendedMessage, error) {
+	if len(payload) < 1 {
+		return nil, fmt.Errorf("extended message payload is empty")
+	}
+
+	return &ExtendedMessage{
+		ID:      payload[0],
+		Payload: payload[1:],
+	}, nil
+}
+
+func (m *ExtendedMessage) Encode() []byte {
+	payload := make([]byte, 1+len(m.Payload))
+
+	payload[0] = m.ID
+	copy(payload[1:], m.Payload)
+
+	return payload
 }
 
 func (r *Request) Encode() []byte {
@@ -140,7 +170,11 @@ func (m *Message) name() string {
 	if int(m.ID) < len(names) {
 		return names[m.ID]
 	}
-	return fmt.Sprintf("UnknownMessageId#%d", m.ID)
+	if m.ID == MsgExtended {
+		return "Extended"
+	}
+
+	return fmt.Sprintf("UnknownMessageId# %d", m.ID)
 }
 
 func (m *Message) String() string {
@@ -152,5 +186,28 @@ func (m *Message) String() string {
 }
 
 func (id MessageID) valid() bool {
-	return id <= MsgRejectRequest
+	switch id {
+	case MsgChoke,
+		MsgUnchoke,
+		MsgInterested,
+		MsgNotInterested,
+		MsgHave,
+		MsgBitfield,
+		MsgRequest,
+		MsgPiece,
+		MsgCancel,
+		MsgPort,
+		MsgSuggest,
+		MsgHaveAll,
+		MsgHaveNone,
+		MsgRejectRequest,
+		MsgExtended:
+		return true
+	default:
+		return false
+	}
 }
+
+// func (id MessageID) valid() bool {
+//     return id <= MsgRejectRequest || id == MsgExtended
+// }

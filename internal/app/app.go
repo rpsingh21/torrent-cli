@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"path"
 	"time"
@@ -38,6 +39,34 @@ func NewAppFromTorrentFile(tfPath, outputDir string) (*App, error) {
 	}, nil
 }
 
+func NewAppFromMagnetLink(ctx context.Context, url, outputDir string) (*App, error) {
+	metaInfo, err := torrent.MetaInfoFromMagnetURL(url)
+	if err != nil {
+		return nil, err
+	}
+
+	// Todo: Add safe dir create in storage.
+	if metaInfo.Name != "" {
+		outputDir = path.Join(outputDir, metaInfo.Name)
+	}
+
+	if metaInfo.PieceHashes == nil {
+		if err := updateMetainfoFromPeers(ctx, metaInfo); err != nil {
+			return nil, fmt.Errorf("discover torrent metadata: %w", err)
+		}
+	}
+
+	if metaInfo.PieceLength <= 0 {
+		return nil, fmt.Errorf("Error doesn't find metainfo from peers")
+	}
+
+	return &App{
+		logger:    log.Default(),
+		metaInfo:  metaInfo,
+		outputDir: outputDir,
+	}, nil
+}
+
 func (a *App) Download(ctx context.Context) error {
 	store, err := storage.NewFileStorage(a.metaInfo, a.outputDir)
 	if err != nil {
@@ -51,12 +80,12 @@ func (a *App) Download(ctx context.Context) error {
 	}()
 
 	pieceManager := piece.NewManager(a.metaInfo, piece.StrategySequential, store)
-	// pieceManager := piece.NewManager(a.metaInfo, piece.StrategyRarestFirst, store)
 	peerManager := peer.NewManager(a.metaInfo, pieceManager)
 	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	done := make(chan error, 2)
 	go func() { done <- discovery.Start(runCtx) }()
 	go func() { done <- peerManager.Run(runCtx) }()

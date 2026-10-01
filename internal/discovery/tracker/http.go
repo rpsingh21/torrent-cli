@@ -11,37 +11,27 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-type Tracker struct {
-	MetaInfo *torrent.MetaInfo
-	client   *http.Client
-}
-
-func NewTracker(metaInfo *torrent.MetaInfo) *Tracker {
-	return &Tracker{
-		MetaInfo: metaInfo,
-		client:   &http.Client{Timeout: 15 * time.Second},
-	}
-}
-
-func (t *Tracker) RequestPeers(ctx context.Context, event string) (*Response, error) {
-	url, err := t.MetaInfo.BuildTrackerURL(event)
+func AnnounceHTTP(ctx context.Context, metaInfo *torrent.MetaInfo, event string) (*Response, error) {
+	url, err := metaInfo.BuildTrackerURL(event)
 	if err != nil {
 		return nil, err
 	}
+
+	client := http.Client{Timeout: 15 * time.Second}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := t.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Tracker HTTP status %d (%s)", resp.StatusCode, t.MetaInfo.Announce)
+		return nil, fmt.Errorf("Tracker HTTP status %d (%s)", resp.StatusCode, metaInfo.Announce)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -56,3 +46,7 @@ func (t *Tracker) RequestPeers(ctx context.Context, event string) (*Response, er
 
 	return UnmarshalTrackerResponse(respData)
 }
+
+// func buildUrl(url string, event string) {
+
+// }
