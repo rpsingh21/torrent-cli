@@ -25,7 +25,7 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 	address := p.Key()
 	p.metaInfo = metaInfo
 
-	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT * time.Second}
+	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
 
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {

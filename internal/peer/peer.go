@@ -15,10 +15,6 @@ import (
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
-const KEEPALIVE_TIMEOUT = 30 * time.Second
-
-// const KEEPALIVE_TIMEOUT = 2 * time.Minute
-
 type requestKey struct {
 	piece  int
 	offset int
@@ -42,7 +38,7 @@ type Peer struct {
 	pendingMu        sync.Mutex
 	ctx              context.Context
 	cancel           context.CancelFunc
-	lateBlocks       int
+	maxBlockRequest  int
 	pendingMessage   chan Message
 }
 
@@ -68,7 +64,10 @@ func (p *Peer) schedulerID() string {
 	return p.Key()
 }
 
-func (p *Peer) Start(parent context.Context) error {
+func (p *Peer) Start(pctx context.Context) error {
+	// init while create
+	p.maxBlockRequest = 16
+
 	if p.metaInfo == nil || p.pieceManager == nil {
 		return fmt.Errorf("peer is missing metainfo or piece manager")
 	}
@@ -80,12 +79,12 @@ func (p *Peer) Start(parent context.Context) error {
 		p.RemoteChoked = true
 	}
 
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(pctx)
 	p.ctx, p.cancel = ctx, cancel
 	defer cancel()
 
 	address := p.Key()
-	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT * time.Second}
+	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 
 	if err != nil {
@@ -93,7 +92,7 @@ func (p *Peer) Start(parent context.Context) error {
 	}
 
 	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-	defer p.Connection.Close()
+	defer p.Close()
 
 	if _, err := p.Connection.Handshake(); err != nil {
 		return err
@@ -105,8 +104,6 @@ func (p *Peer) Start(parent context.Context) error {
 
 	p.Interested = true
 	p.Choked = true
-
-	go p.requestExpirationLoop()
 
 	return p.messageLoop()
 }
@@ -121,7 +118,11 @@ func (p *Peer) messageLoop() error {
 
 		message, err := p.Connection.ReadMessage()
 		if err != nil {
-			return fmt.Errorf("read error or keepalive timeout: %w", err)
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return fmt.Errorf("peer %s timed out waiting for message: %w", p.ID, err)
+			}
+
+			return fmt.Errorf("read message from peer %s: %w", p.ID, err)
 		}
 
 		if message == nil {
@@ -140,7 +141,7 @@ func (p *Peer) fillRequests() error {
 	}
 
 	// Todo Limit dynamic (back pressure based on dowload limit)
-	for p.pendingCount() < REQUESTS_PER_PEER {
+	for p.pendingCount() < p.maxBlockRequest {
 		block := p.pieceManager.NextBlock(p.schedulerID())
 		if block == nil {
 			break
@@ -178,7 +179,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		p.Choked = false
 
 	case MsgBitfield:
-		wantBytes := (p.pieceManager.Metainfo.TotalPices + 7) / 8
+		wantBytes := (p.pieceManager.Metainfo.TotalPices + 7) >> 3
 		if len(message.Payload) != wantBytes {
 			return fmt.Errorf("invalid bitfield length %d, want %d %+v", len(message.Payload), wantBytes, p.pieceManager.Metainfo)
 		}
@@ -219,40 +220,43 @@ func (p *Peer) handleMessage(message *Message) error {
 			return err
 		}
 		key := requestKey{piece: int(block.Index), offset: int(block.Begin)}
+
 		p.pendingMu.Lock()
-		_, pending := p.pending[key]
+		startTime, pending := p.pending[key]
 		if pending {
 			delete(p.pending, key)
 
 			// REFRESH TIMEOUTS: The peer is actively sending data.
-			// now := time.Now()
-			// for k := range p.pending {
-			// 	p.pending[k] = now
-			// }
+			if time.Since(startTime) > REQUEST_TIMEOUT {
+				p.maxBlockRequest >>= 1
+				log.Printf("peer: %v Decrease max request %v", p.IP, p.maxBlockRequest)
+				now := time.Now()
+				for k := range p.pending {
+					p.pending[k] = now.Add(10 * time.Second)
+				}
+			} else if p.maxBlockRequest < MAX_REQUESTS_PER_PEER && len(p.pending) <= p.maxBlockRequest && time.Since(startTime) < (3*time.Second) {
+				p.maxBlockRequest = min(p.maxBlockRequest+8, MAX_REQUESTS_PER_PEER)
+				log.Printf("peer: %v Increase max request %v", p.IP, p.maxBlockRequest)
+			}
 		}
 		p.pendingMu.Unlock()
 
-		// Todo: Refactor pending section
 		if !pending {
-			// Downgrade from a fatal error to a simple log.
-			// The request timed out, but the peer eventually sent it anyway.
-			p.lateBlocks++
-
-			// This limit optimize (back pressure)
-			if p.lateBlocks > 0 {
-				// Drop the peer completely for wasting bandwidth
-				return fmt.Errorf("peer is too slow and sent too many expired blocks, dropping connection")
-			}
-
-			// log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+			log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
 			return nil
+		}
+
+		if p.maxBlockRequest < 8 {
+			return fmt.Errorf("peer: %v is too slow and sent too many expired blocks, dropping connection", p.IP)
 		}
 
 		if !p.pieceManager.CompleteBlock(p.schedulerID(), int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Key())
 		}
+
 		p.stat.IncRequestsCompleted()
 		p.stat.AddDownloaded(len(block.Data))
+
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
 			if err := p.pieceManager.CompletePiece(int(block.Index)); err != nil {
 				p.dropPendingPiece(int(block.Index))
@@ -274,20 +278,20 @@ func (p *Peer) handleMessage(message *Message) error {
 	return nil
 }
 
-func (p *Peer) requestExpirationLoop() {
-	// Check for expired requests every few seconds
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+// func (p *Peer) requestExpirationLoop() {
+// 	// Check for expired requests every few seconds
+// 	ticker := time.NewTicker(10 * time.Second)
+// 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.expireRequests()
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-p.ctx.Done():
+// 			return
+// 		case <-ticker.C:
+// 			p.expireRequests()
+// 		}
+// 	}
+// }
 
 func (p *Peer) dropPendingPiece(pieceIndex int) {
 	p.pendingMu.Lock()
@@ -311,26 +315,27 @@ func (p *Peer) pendingCount() int {
 	return len(p.pending)
 }
 
-func (p *Peer) expireRequests() {
-	now := time.Now()
-	var expired []requestKey
-	p.pendingMu.Lock()
-	for key, started := range p.pending {
-		if now.Sub(started) >= REQUEST_TIMEOUT*time.Second {
-			expired = append(expired, key)
-			delete(p.pending, key)
-		}
-	}
-	p.pendingMu.Unlock()
+// func (p *Peer) expireRequests() {
+// 	now := time.Now()
+// 	var expired []requestKey
+// 	p.pendingMu.Lock()
+// 	for key, started := range p.pending {
+// 		if now.Sub(started) >= REQUEST_TIMEOUT {
+// 			expired = append(expired, key)
+// 			delete(p.pending, key)
+// 		}
+// 	}
+// 	p.pendingMu.Unlock()
 
-	for _, key := range expired {
-		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
-		p.stat.IncTimeouts()
-	}
-}
+// 	for _, key := range expired {
+// 		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
+// 		p.stat.IncTimeouts()
+// 	}
+// }
 
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
+	log.Printf("===================== %v: releaseAllPending (%v)====================", p.IP, len(p.pending))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)

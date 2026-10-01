@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	MAX_PEERS         = 1000
-	REQUESTS_PER_PEER = 128
-	REQUEST_TIMEOUT   = 10
+	MAX_PEERS             = 1000
+	MAX_REQUESTS_PER_PEER = 128
+	REQUEST_TIMEOUT       = 30 * time.Second
+	KEEPALIVE_TIMEOUT     = 2 * time.Minute
 )
 
 type Manager struct {
@@ -94,7 +95,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			completed, inprogress := m.pieceManager.GetStat()
 
 			fmt.Printf(
-				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | %v]",
+				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | T: %v]",
 				totalPeer,
 				float64(download)/mbp,
 				downloadRate/mbp,
@@ -105,7 +106,8 @@ func (m *Manager) Run(ctx context.Context) error {
 				completed,
 				inprogress,
 				inprogress-completed,
-				len(m.pieceManager.ReleaseQue), 0,
+				len(m.pieceManager.ReleaseQue),
+				m.metaInfo.TotalPices,
 				// m.pieceManager.ReleaseQue,
 			)
 		}
