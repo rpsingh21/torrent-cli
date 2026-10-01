@@ -36,3 +36,6 @@ testdata/
 .logs/
 atemp/
 output
+
+# Log
+*.log

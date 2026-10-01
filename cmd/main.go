@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -28,6 +30,17 @@ func main() {
 			log.Println(http.ListenAndServe("localhost:6060", nil))
 		}()
 	}
+
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "dev"
+	}
+
+	// 1. Initialize the environment-specific logger
+	logger := setupLogger(env)
+
+	// 2. Optional: Set it as the global default if you prefer not to use DI
+	slog.SetDefault(logger)
 
 	outputDir, err := filepath.Abs(*out)
 	if err != nil {
@@ -59,5 +72,44 @@ func main() {
 		log.Fatalf("Torrent file or Magnet link require")
 	}
 
-	log.Printf("Torrent downloaded successfully: %s", outputDir)
+	slog.Info(fmt.Sprintf("Torrent downloaded successfully: %s", outputDir))
+
+}
+
+func setupLogger(env string) *slog.Logger {
+	var handler slog.Handler
+
+	switch env {
+	case "prod":
+		// Production: JSON format, Info level minimum
+		opts := &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+
+	case "test":
+		// Test: Discard logs entirely to keep test output clean
+		// (Or use a custom buffer if you need to assert log output)
+		opts := &slog.HandlerOptions{
+			Level: slog.LevelError,
+		}
+		handler = slog.NewTextHandler(os.Stdout, opts) // Or io.Discard
+
+	default:
+		file, err := os.OpenFile("dev.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("failed to open log file: %v", err)
+		}
+
+		// Local: Text format, Debug level minimum, file output only
+		opts := &slog.HandlerOptions{
+			Level:     slog.LevelDebug,
+			AddSource: true,
+		}
+
+		// Pass 'file' directly to the handler
+		handler = slog.NewTextHandler(file, opts)
+	}
+
+	return slog.New(handler)
 }

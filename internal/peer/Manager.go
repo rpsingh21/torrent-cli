@@ -15,7 +15,7 @@ import (
 
 const (
 	MAX_PEERS         = 1000
-	REQUESTS_PER_PEER = 64
+	REQUESTS_PER_PEER = 128
 	REQUEST_TIMEOUT   = 10
 )
 
@@ -54,18 +54,17 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			m.Close()
 			m.peersWG.Wait()
-
-			// Todo: will remove once CLI
-			log.Println("")
-
 			return ctx.Err()
+
 		case p := <-m.PeerChan:
 			if p == nil {
 				continue
 			}
 			m.addPeer(ctx, p)
+
 		case p := <-m.removePeerChan:
 			m.removePeer(p)
+
 		case <-ticker.C:
 			now := time.Now()
 			elapsed := now.Sub(lastTime).Seconds()

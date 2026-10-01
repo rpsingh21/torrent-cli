@@ -264,7 +264,6 @@ func (p *Peer) handleMessage(message *Message) error {
 		// if err := p.handleExtendedMessage(message); err != nil {
 		// 	return err
 		// }
-		log.Println("")
 		log.Printf("extened message %v", message.name())
 
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:

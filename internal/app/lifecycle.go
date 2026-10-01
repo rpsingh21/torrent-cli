@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
@@ -50,7 +51,7 @@ func updateMetainfoFromPeers(ctx context.Context, metaInfo *torrent.MetaInfo) er
 
 			select {
 			case result <- info:
-				cancel()
+				cancel() // Cancel context to cancel other peer metadata download
 			case <-ctx.Done():
 			}
 		})
@@ -70,8 +71,7 @@ func updateMetainfoFromPeers(ctx context.Context, metaInfo *torrent.MetaInfo) er
 			return fmt.Errorf("update metainfo: %w", err)
 		}
 
-		log.Println("==================================================== complete metadata dowload!")
-
+		slog.Info("complete metadata dowload!")
 		wg.Wait()
 		return nil
 
