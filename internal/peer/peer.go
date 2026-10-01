@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -25,19 +26,17 @@ type Peer struct {
 	IP               string
 	Port             uint16
 	metaInfo         *torrent.MetaInfo
-	Connection       *Connection
+	conn             net.Conn
+	reader           *bufio.Reader
 	Choked           bool
 	Interested       bool
 	RemoteChoked     bool
 	RemoteInterested bool
 	stat             *Stat
 	pieceManager     *piece.Manager
-	removeChan       chan *Peer
 	bitfield         *bitfield.Bitfield
 	pending          map[requestKey]time.Time
 	pendingMu        sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
 	maxBlockRequest  int
 	pendingMessage   chan Message
 }
@@ -80,7 +79,6 @@ func (p *Peer) Start(pctx context.Context) error {
 	}
 
 	ctx, cancel := context.WithCancel(pctx)
-	p.ctx, p.cancel = ctx, cancel
 	defer cancel()
 
 	address := p.Key()
@@ -90,15 +88,14 @@ func (p *Peer) Start(pctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	p.conn = conn
+	p.reader = bufio.NewReader(conn)
 
-	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-	defer p.Close()
-
-	if _, err := p.Connection.Handshake(); err != nil {
+	if _, err := p.Handshake(); err != nil {
 		return err
 	}
 
-	if _, err := p.Connection.WriteMessage(&Message{ID: MsgInterested}); err != nil {
+	if _, err := p.WriteMessage(&Message{ID: MsgInterested}); err != nil {
 		return err
 	}
 
@@ -114,9 +111,7 @@ func (p *Peer) messageLoop() error {
 			return err
 		}
 
-		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
-
-		message, err := p.Connection.ReadMessage()
+		message, err := p.ReadMessage()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return fmt.Errorf("peer %s timed out waiting for message: %w", p.ID, err)
@@ -154,7 +149,7 @@ func (p *Peer) fillRequests() error {
 			Payload: (&Request{Index: uint32(block.Piece), Begin: uint32(block.Offset), Length: uint32(block.Length)}).Encode(),
 		}
 
-		if n, err := p.Connection.WriteMessage(message); err != nil {
+		if n, err := p.WriteMessage(message); err != nil {
 			p.pieceManager.ReleaseBlock(p.schedulerID(), block.Piece, block.Offset)
 			return err
 		} else {
@@ -226,10 +221,12 @@ func (p *Peer) handleMessage(message *Message) error {
 		if pending {
 			delete(p.pending, key)
 
-			// REFRESH TIMEOUTS: The peer is actively sending data.
 			if time.Since(startTime) > REQUEST_TIMEOUT {
+				// arrange based on dowload letancy(stat).
 				p.maxBlockRequest >>= 1
 				log.Printf("peer: %v Decrease max request %v", p.IP, p.maxBlockRequest)
+
+				// REFRESH TIMEOUTS: The peer is actively sending data.
 				now := time.Now()
 				for k := range p.pending {
 					p.pending[k] = now.Add(10 * time.Second)
@@ -278,21 +275,6 @@ func (p *Peer) handleMessage(message *Message) error {
 	return nil
 }
 
-// func (p *Peer) requestExpirationLoop() {
-// 	// Check for expired requests every few seconds
-// 	ticker := time.NewTicker(10 * time.Second)
-// 	defer ticker.Stop()
-
-// 	for {
-// 		select {
-// 		case <-p.ctx.Done():
-// 			return
-// 		case <-ticker.C:
-// 			p.expireRequests()
-// 		}
-// 	}
-// }
-
 func (p *Peer) dropPendingPiece(pieceIndex int) {
 	p.pendingMu.Lock()
 	var keys []requestKey
@@ -315,24 +297,6 @@ func (p *Peer) pendingCount() int {
 	return len(p.pending)
 }
 
-// func (p *Peer) expireRequests() {
-// 	now := time.Now()
-// 	var expired []requestKey
-// 	p.pendingMu.Lock()
-// 	for key, started := range p.pending {
-// 		if now.Sub(started) >= REQUEST_TIMEOUT {
-// 			expired = append(expired, key)
-// 			delete(p.pending, key)
-// 		}
-// 	}
-// 	p.pendingMu.Unlock()
-
-// 	for _, key := range expired {
-// 		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
-// 		p.stat.IncTimeouts()
-// 	}
-// }
-
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
 	log.Printf("===================== %v: releaseAllPending (%v)====================", p.IP, len(p.pending))
@@ -349,13 +313,9 @@ func (p *Peer) releaseAllPending() {
 }
 
 func (p *Peer) Close() error {
-	if p.cancel != nil {
-		p.cancel()
-	}
-
 	p.releaseAllPending()
-	if p.Connection != nil {
-		return p.Connection.Close()
+	if p.conn != nil {
+		return p.conn.Close()
 	}
 	return nil
 }

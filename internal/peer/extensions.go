@@ -1,12 +1,12 @@
 package peer
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha1"
 	"fmt"
 	"log"
 	"net"
-	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
@@ -32,22 +32,21 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 		return nil, err
 	}
 
-	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-	defer p.Connection.Close()
+	p.conn = conn
+	p.reader = bufio.NewReader(conn)
 
-	// Cancel the connection immediately when ctx is cancelled.
 	done := make(chan struct{})
 	defer close(done)
 
 	go func() {
 		select {
 		case <-ctx.Done():
-			p.Connection.Close()
+			p.conn.Close()
 		case <-done:
 		}
 	}()
 
-	peerHs, err := p.Connection.Handshake()
+	peerHs, err := p.Handshake()
 	if err != nil {
 		return nil, fmt.Errorf("BitTorrent handshake failed: %w", err)
 	}
@@ -82,9 +81,7 @@ func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 	handshakeReceived := false
 
 	for {
-		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
-
-		message, err := p.Connection.ReadMessage()
+		message, err := p.ReadMessage()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return nil, fmt.Errorf("metadata download timeout")
@@ -234,7 +231,7 @@ func (p *Peer) ExtendedHandshake() error {
 		Payload: extMsg.Encode(),
 	}
 
-	if _, err := p.Connection.writeAll(msg.EncodeMessage()); err != nil {
+	if _, err := p.writeAll(msg.EncodeMessage()); err != nil {
 		return fmt.Errorf("extended handshake failed: %w", err)
 	}
 
@@ -263,7 +260,7 @@ func (p *Peer) sendMetaRequest(peerMetadataExtID uint8, index int) error {
 		Payload: extMessage.Encode(),
 	}
 
-	if _, err := p.Connection.writeAll(msg.EncodeMessage()); err != nil {
+	if _, err := p.writeAll(msg.EncodeMessage()); err != nil {
 		return fmt.Errorf("metadata piece request failed: %w", err)
 	}
 
