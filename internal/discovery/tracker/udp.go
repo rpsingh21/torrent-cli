@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,13 +101,15 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 
 	interval := int(binary.BigEndian.Uint32(buf[8:12]))
 
+	// Todo: Reuse response function to decode peers
+	// Handdel ipv6 as well
 	peerCount := (n - 20) / 6
 	peers := make([]*peer.Peer, 0, peerCount)
 	for i := range peerCount {
 		off := 20 + i*6
 		ip := net.IPv4(buf[off], buf[off+1], buf[off+2], buf[off+3]).String()
 		p := uint16(binary.BigEndian.Uint16(buf[off+4 : off+6]))
-		peers = append(peers, &peer.Peer{IP: ip, Port: p})
+		peers = append(peers, newPeer(ip, strconv.Itoa(int(p))))
 	}
 
 	response := &Response{

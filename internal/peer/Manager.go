@@ -20,8 +20,8 @@ const (
 )
 
 type Manager struct {
-	activePeer   map[string]*Peer
 	PeerChan     chan *Peer
+	activePeer   map[string]*Peer
 	metaInfo     *torrent.MetaInfo
 	pieceManager *piece.Manager
 	mu           sync.Mutex
@@ -59,9 +59,6 @@ func (m *Manager) Run(ctx context.Context) error {
 				continue
 			}
 			m.addPeer(ctx, p, &wg)
-
-		// case p := <-m.removePeerChan:
-		// 	m.removePeer(p)
 
 		case <-ticker.C:
 			now := time.Now()
@@ -114,22 +111,20 @@ func (m *Manager) Run(ctx context.Context) error {
 }
 
 func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
-	key := p.Key()
-
 	m.mu.Lock()
-	if _, exists := m.activePeer[key]; exists || len(m.activePeer) >= MAX_PEERS {
+	if _, exists := m.activePeer[p.Addr]; exists || len(m.activePeer) >= MAX_PEERS {
 		m.mu.Unlock()
 		return
 	}
 	p.metaInfo = m.metaInfo
 	p.pieceManager = m.pieceManager
-	m.activePeer[key] = p
+	m.activePeer[p.Addr] = p
 	m.mu.Unlock()
 
 	wg.Go(func() {
 		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
 			downloaded := p.stat.Snapshot().Downloaded
-			log.Printf("Peer %s failed: %v, Downloaded = %v", key, err.Error(), downloaded/1000)
+			log.Printf("Peer %s failed: %v, Downloaded = %v", p.Addr, err.Error(), downloaded/1000)
 		}
 		p.Close()
 		m.removePeer(p)
@@ -137,17 +132,16 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 }
 
 func (m *Manager) removePeer(p *Peer) {
-	log.Println("----------------------- Manager recive for remove peer -----------------", p.IP)
+	log.Printf("----------------------- %v Manager recive for remove peer -----------------", p.Addr)
 	if p == nil {
 		return
 	}
-	key := p.Key()
 
 	m.mu.Lock()
-	delete(m.activePeer, key)
+	delete(m.activePeer, p.Addr)
 	m.mu.Unlock()
 
-	m.pieceManager.RemovePeer(p.schedulerID())
+	m.pieceManager.RemovePeer(p.Addr)
 }
 
 func (m *Manager) Close() {

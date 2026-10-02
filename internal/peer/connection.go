@@ -26,7 +26,7 @@ func (p *Peer) Handshake() (*Handshake, error) {
 		return nil, fmt.Errorf("info hash mismatch")
 	}
 
-	p.ID = string(remoteHs.PeerID[:])
+	p.PeerId = string(remoteHs.PeerID[:])
 	return remoteHs, nil
 }
 

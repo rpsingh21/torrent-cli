@@ -22,12 +22,11 @@ const metadataPieceSize = 16 * 1024
 const maxMetadataSize = 10 * 1024 * 1024
 
 func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo) ([]byte, error) {
-	address := p.Key()
 	p.metaInfo = metaInfo
 
 	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
 
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, err := dialer.DialContext(ctx, "tcp", p.Addr)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +51,7 @@ func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo)
 	}
 
 	if !peerHs.SupportsExtensions() {
-		return nil, fmt.Errorf("peer %s doesn't support extension protocol", address)
+		return nil, fmt.Errorf("peer %s doesn't support extension protocol", p.Addr)
 	}
 
 	if err := p.ExtendedHandshake(); err != nil {
@@ -112,7 +111,7 @@ func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 			}
 
 			if peerMetadataExtID == 0 {
-				return nil, fmt.Errorf("peer: %v does not support ut_metadata", p.IP)
+				return nil, fmt.Errorf("peer: %v does not support ut_metadata", p.Addr)
 			}
 
 			pieceCount = (metadataSize + metadataPieceSize - 1) / metadataPieceSize
@@ -171,7 +170,7 @@ func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 			received[pieceIdx] = true
 			receivedCount++
 
-			log.Printf("peer: %v received metadata piece %d/%d", p.IP, receivedCount, pieceCount)
+			log.Printf("peer: %v received metadata piece %d/%d", p.Addr, receivedCount, pieceCount)
 
 			if receivedCount != pieceCount {
 				// Find and request the next unreceived piece sequentially

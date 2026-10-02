@@ -16,19 +16,18 @@ func TestCompleteHandshake(t *testing.T) {
 	}
 
 	peers := []struct {
-		ip       string
-		port     uint16
+		addr     string
 		isFailed bool
 	}{
-		{"87.179.14.132", 57434, true},
-		{"147.90.209.90", 33622, true},
+		{"87.179.14.132:57434", true},
+		{"147.90.209.90:33622", true},
 	}
 
 	for _, tf := range peers {
-		t.Run(tf.ip, func(t *testing.T) {
-			peer := NewPeer(tf.ip, tf.ip, tf.port, metaInfo, nil)
+		t.Run(tf.addr, func(t *testing.T) {
+			peer := NewPeer(tf.addr, tf.addr, metaInfo)
 			if _, err := peer.Handshake(); err != nil {
-				t.Fatalf("peer: %v handshake failed", peer.ID)
+				t.Fatalf("peer: %v handshake failed", peer.Addr)
 			}
 			peer.Close()
 		})

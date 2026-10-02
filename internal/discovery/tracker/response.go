@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 
 	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
@@ -44,14 +45,16 @@ func parsePeers(v any) ([]*peer.Peer, error) {
 	switch peers := v.(type) {
 	case []byte:
 		if len(peers)%6 != 0 {
-			return nil, fmt.Errorf("invalid compact peers length %d", len(peers))
+			return nil, fmt.Errorf("Invalid ipv4 length %d", len(peers))
 		}
 		result := make([]*peer.Peer, 0, len(peers)/6)
+
 		for i := 0; i < len(peers); i += 6 {
 			ip := net.IPv4(peers[i], peers[i+1], peers[i+2], peers[i+3]).String()
 			port := binary.BigEndian.Uint16(peers[i+4 : i+6])
-			result = append(result, &peer.Peer{IP: ip, Port: port})
+			result = append(result, newPeer(ip, strconv.Itoa(int(port))))
 		}
+
 		return result, nil
 
 	case []any:
@@ -61,28 +64,33 @@ func parsePeers(v any) ([]*peer.Peer, error) {
 			if !ok {
 				return nil, fmt.Errorf("invalid peer entry type %T", item)
 			}
+
 			ipBytes, ok := m["ip"].([]byte)
 			if !ok {
 				return nil, fmt.Errorf("invalid peer ip %T", m["ip"])
 			}
+
 			port64, ok := m["port"].(int64)
 			if !ok || port64 < 1 || port64 > 65535 {
 				return nil, fmt.Errorf("invalid peer port %v", m["port"])
 			}
-			var id string
-			if idBytes, ok := m["peer id"].([]byte); ok {
-				id = string(idBytes)
-			}
-			result = append(
-				result,
-				&peer.Peer{ID: id, IP: string(ipBytes), Port: uint16(port64)})
+			port := strconv.Itoa(int(port64))
+
+			// var id string
+			// if idBytes, ok := m["peer id"].([]byte); ok {
+			// 	id = string(idBytes)
+			// }
+			result = append(result, newPeer(string(ipBytes), port))
 		}
 		return result, nil
+
 	default:
 		return nil, fmt.Errorf("invalid peers field type %T", v)
 	}
 }
 
-// func peerKey(p *peer.Peer) string {
-// 	return net.JoinHostPort(p.IP, strconv.Itoa(int(p.Port)))
-// }
+func newPeer(ip string, port string) *peer.Peer {
+	return &peer.Peer{
+		Addr: net.JoinHostPort(ip, port),
+	}
+}
