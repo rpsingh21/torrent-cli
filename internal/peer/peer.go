@@ -24,30 +24,25 @@ type requestKey struct {
 }
 
 type Peer struct {
-	// Basic details
 	PeerId string
 	Addr   string
-	// IP     string
-	// Port   uint16
 
-	// Peer State
 	Choked           bool
 	Interested       bool
 	RemoteChoked     bool
 	RemoteInterested bool
-	maxBlockRequest  int
-	pending          map[requestKey]time.Time
-	pendingMu        sync.Mutex
 
-	// Network related variable
+	maxBlockRequest int
+
+	pending   map[requestKey]time.Time
+	pendingMu sync.Mutex
+
 	conn   net.Conn
 	reader *bufio.Reader
 
-	// Meta info and dependency
 	metaInfo     *torrent.MetaInfo
 	pieceManager *piece.Manager
 
-	// stat
 	bitfield *bitfield.Bitfield
 	stat     *Stat
 }
@@ -64,21 +59,13 @@ func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
 	}
 }
 
-// func (p *Peer) Key() string {
-// 	return net.JoinHostPort(p.IP, strconv.Itoa(int(p.Port)))
-// }
-
-// func (p *Peer) schedulerID() string {
-// 	return p.Key()
-// }
-
 func (p *Peer) Start(pctx context.Context) error {
-	// init while create
-	p.maxBlockRequest = 16
-
 	if p.metaInfo == nil || p.pieceManager == nil {
 		return fmt.Errorf("peer is missing metainfo or piece manager")
 	}
+
+	// init while create
+	p.maxBlockRequest = 16
 
 	if p.pending == nil {
 		p.pending = make(map[requestKey]time.Time)
@@ -90,7 +77,6 @@ func (p *Peer) Start(pctx context.Context) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	// address := p.Key()
 	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
 	conn, err := dialer.DialContext(ctx, "tcp", p.Addr)
 
@@ -111,6 +97,7 @@ func (p *Peer) Start(pctx context.Context) error {
 	p.Interested = true
 	p.Choked = true
 
+	go p.controllerLoop(ctx)
 	return p.messageLoop()
 }
 
@@ -144,7 +131,6 @@ func (p *Peer) fillRequests() error {
 		return nil
 	}
 
-	// Todo Limit dynamic (back pressure based on dowload limit)
 	for p.pendingCount() < p.maxBlockRequest {
 		block := p.pieceManager.NextBlock(p.Addr)
 		if block == nil {
@@ -229,31 +215,13 @@ func (p *Peer) handleMessage(message *Message) error {
 		startTime, pending := p.pending[key]
 		if pending {
 			delete(p.pending, key)
-
-			if time.Since(startTime) > REQUEST_TIMEOUT {
-				// arrange based on dowload letancy(stat).
-				p.maxBlockRequest >>= 1
-				log.Printf("peer: %v Decrease max request %v", p.Addr, p.maxBlockRequest)
-
-				// REFRESH TIMEOUTS: The peer is actively sending data.
-				now := time.Now()
-				for k := range p.pending {
-					p.pending[k] = now.Add(10 * time.Second)
-				}
-			} else if p.maxBlockRequest < MAX_REQUESTS_PER_PEER && len(p.pending) <= p.maxBlockRequest && time.Since(startTime) < (3*time.Second) {
-				p.maxBlockRequest = min(p.maxBlockRequest+8, MAX_REQUESTS_PER_PEER)
-				log.Printf("peer: %v Increase max request %v", p.Addr, p.maxBlockRequest)
-			}
 		}
 		p.pendingMu.Unlock()
 
+		// Todo: Check is valid case
 		if !pending {
 			log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 			return nil
-		}
-
-		if p.maxBlockRequest < 8 {
-			return fmt.Errorf("peer: %v is too slow and sent too many expired blocks, dropping connection", p.Addr)
 		}
 
 		if !p.pieceManager.CompleteBlock(p.Addr, int(block.Index), int(block.Begin), block.Data) {
@@ -261,6 +229,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 
 		p.stat.IncRequestsCompleted()
+		p.stat.updateDownloadLatency(time.Since(startTime))
 		p.stat.AddDownloaded(len(block.Data))
 
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
@@ -318,6 +287,44 @@ func (p *Peer) releaseAllPending() {
 
 	for _, key := range pending {
 		p.pieceManager.ReleaseBlock(p.Addr, key.piece, key.offset)
+	}
+}
+
+func (p *Peer) controllerLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.updateRequestWindow()
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *Peer) updateRequestWindow() {
+	latency, minLatency := p.stat.LatencySnapshot()
+	queueDelay := latency - minLatency
+
+	if latency > REQUEST_TIMEOUT*2/3 {
+		p.maxBlockRequest = max(2, p.maxBlockRequest>>1)
+		log.Printf("peer %v Decrease %v latency: %v queueDelay = %v", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay)
+		return
+	}
+
+	if queueDelay > 5*time.Second {
+		p.maxBlockRequest = max(2, p.maxBlockRequest-8)
+		log.Printf("peer %v Decrease %v latency: %v queueDelay = %v", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay)
+		return
+	}
+
+	if p.maxBlockRequest < MAX_REQUESTS_PER_PEER && queueDelay > 0 && queueDelay < 1*time.Second {
+		p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, p.maxBlockRequest+8)
+		log.Printf("peer %v Increase %v latency: %v queueDelay = %v", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay)
+		return
 	}
 }
 

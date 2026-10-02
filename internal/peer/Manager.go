@@ -41,8 +41,8 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	var lastTime = time.Now()
 
+	var lastTime = time.Now()
 	var mbp float64 = 1000_000
 	var kbp float64 = 1000
 	var preDownload, preUpload int64
@@ -100,7 +100,7 @@ func (m *Manager) Run(ctx context.Context) error {
 				totalReqs,
 				totalErrs,
 				completed,
-				inprogress,
+				inprogress+1,
 				inprogress-completed,
 				len(m.pieceManager.ReleaseQue),
 				m.metaInfo.TotalPices,
