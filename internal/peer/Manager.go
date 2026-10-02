@@ -46,6 +46,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	var mbp float64 = 1000_000
 	var kbp float64 = 1000
 	var preDownload, preUpload int64
+	preSnapshot := make(map[string]StatSnapshot)
 
 	for {
 		select {
@@ -72,15 +73,17 @@ func (m *Manager) Run(ctx context.Context) error {
 			totalPeer := len(m.activePeer)
 
 			for _, v := range m.activePeer {
-				snap := v.stat.Snapshot()
+				preSnapshot[v.Addr] = v.stat.Snapshot()
+			}
+			m.mu.Unlock()
 
+			for _, snap := range preSnapshot {
 				download += snap.Downloaded
 				upload += snap.Uploaded
 
 				totalReqs += snap.RequestsSent
 				totalErrs += snap.Errors
 			}
-			m.mu.Unlock()
 
 			downloadRate := float64(download-preDownload) / elapsed
 			uploadRate := float64(upload-preUpload) / elapsed
@@ -91,8 +94,9 @@ func (m *Manager) Run(ctx context.Context) error {
 			completed, inprogress := m.pieceManager.GetStat()
 
 			fmt.Printf(
-				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | T: %v]",
+				"\r\033[KTotalPeer: %v/%v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | T: %v]",
 				totalPeer,
+				len(preSnapshot),
 				float64(download)/mbp,
 				downloadRate/mbp,
 				float64(upload)/mbp,

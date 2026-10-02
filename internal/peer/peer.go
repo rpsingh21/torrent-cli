@@ -276,7 +276,7 @@ func (p *Peer) pendingCount() int {
 
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
-	log.Printf("peer: %v: releaseAllPending_called (%v)====================", p.Addr, len(p.pending))
+	log.Printf("peer: %v releaseAllPending_called (%v)====================", p.Addr, len(p.pending))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)
@@ -311,21 +311,24 @@ func (p *Peer) updateRequestWindow() {
 
 	if p.maxBlockRequest > 2 && queueDelay > REQUEST_TIMEOUT*2/3 {
 		p.maxBlockRequest = max(2, p.maxBlockRequest>>1)
-		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, p.stat.DownloadRate, p.stat.Downloaded)
+		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)",
+			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded)
 		return
 	}
 
-	throughputBlockSize := int(max(2, (downloadRate*10)/MAX_MESSAGE_LENGTH))
+	throughputBlockSize := int(max(2, (downloadRate*10)/16384))
 
 	if p.maxBlockRequest > throughputBlockSize && queueDelay > REQUEST_TIMEOUT/3 {
 		p.maxBlockRequest = max(throughputBlockSize, p.maxBlockRequest-8)
-		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, p.stat.DownloadRate, p.stat.Downloaded)
+		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)",
+			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded)
 		return
 	}
 
 	if p.maxBlockRequest < MAX_REQUESTS_PER_PEER && queueDelay > 0 && queueDelay < 1*time.Second {
-		p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, p.maxBlockRequest+8)
-		log.Printf("peer %v Increase %v latency: %v queueDelay: %v peer rate: (%v | %v)", p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, p.stat.DownloadRate, p.stat.Downloaded)
+		p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, p.maxBlockRequest<<1)
+		log.Printf("peer %v Increase %v latency: %v queueDelay: %v peer rate: (%v | %v) | %v",
+			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded, throughputBlockSize)
 		return
 	}
 }
