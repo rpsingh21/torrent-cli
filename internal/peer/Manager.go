@@ -132,7 +132,7 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 }
 
 func (m *Manager) removePeer(p *Peer) {
-	log.Printf("----------------------- %v Manager recive for remove peer -----------------", p.Addr)
+	log.Printf("peer %v Manager recive for manager remove peer", p.Addr)
 	if p == nil {
 		return
 	}

@@ -45,9 +45,11 @@ func (s *Stat) AddDownloaded(n int) {
 	s.mu.Unlock()
 }
 
-func (s *Stat) updateDownloadLatency(latency time.Duration) {
+func (s *Stat) updateDownloadWithLatency(n int, latency time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.Downloaded += int64(n)
 
 	if s.MinDownloadLatency == 0 || latency < s.MinDownloadLatency {
 		s.MinDownloadLatency = latency
@@ -58,14 +60,17 @@ func (s *Stat) updateDownloadLatency(latency time.Duration) {
 		return
 	}
 
+	currDownloadRate := int64(float64(n) / latency.Seconds())
+	s.DownloadRate = (2*currDownloadRate + 8*s.DownloadRate) / 10
+
 	s.DownloadLatency = (2*latency + 8*s.DownloadLatency) / 10
 }
 
-func (s *Stat) LatencySnapshot() (latency, minLatency time.Duration) {
+func (s *Stat) queueDelayAndDowloadrateSnapshot() (time.Duration, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.DownloadLatency, s.MinDownloadLatency
+	return s.DownloadLatency - s.MinDownloadLatency, s.DownloadRate
 }
 
 func (s *Stat) AddUploaded(n int) {
