@@ -24,10 +24,9 @@ func (p *Piece) NextMissingBlock() *Block {
 }
 
 func (p *Piece) blockAt(offset int) *Block {
-	for i := range p.Blocks {
-		if p.Blocks[i].Offset == offset {
-			return &p.Blocks[i]
-		}
+	index := offset / BLOCK_SIZE
+	if index < p.toatalBlock {
+		return &p.Blocks[index]
 	}
 
 	return nil
