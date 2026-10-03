@@ -224,7 +224,6 @@ func (p *Peer) handleMessage(message *Message) error {
 			return nil
 		}
 
-		// Todo: ambiguous imp
 		if !p.pieceManager.CompleteBlock(p.Addr, int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 		}
@@ -232,7 +231,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		p.stat.IncRequestsCompleted()
 
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
-			if err := p.pieceManager.CompletePiece(int(block.Index)); err != nil {
+			if err := p.pieceManager.SaveCompletePiece(int(block.Index)); err != nil {
 				p.pieceManager.ReDownloadPiece(int(block.Index))
 				log.Printf("piece %d rejected: %v", block.Index, err)
 			}

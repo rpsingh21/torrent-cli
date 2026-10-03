@@ -12,3 +12,9 @@ type Block struct {
 	Completed   bool
 	startedAt   time.Time
 }
+
+func (b *Block) resetDownload() {
+	b.Requested = false
+	b.RequestedBy = ""
+	b.startedAt = time.Time{}
+}

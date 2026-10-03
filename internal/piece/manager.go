@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	REQUEST_SIZE = 16 * 1024
+	BLOCK_SIZE = 16 * 1024
 )
 
 type Manager struct {
@@ -36,12 +36,16 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 	for i, hash := range meta.PieceHashes {
 		remaining := meta.TotalSize - int64(i)*meta.PieceLength
 		pieceSize := int(min(meta.PieceLength, remaining))
+		blocks, size := buildBlocks(i, pieceSize)
 
 		pieces[i] = &Piece{
-			Index:  i,
-			Length: pieceSize,
-			HashV1: hash,
-			Blocks: buildBlocks(i, pieceSize),
+			Index:           i,
+			Offset:          i * int(meta.PieceLength),
+			Length:          pieceSize,
+			HashV1:          hash,
+			Blocks:          blocks,
+			toatalBlock:     size,
+			downloadedBlock: 0,
 		}
 	}
 
@@ -64,32 +68,32 @@ func (m *Manager) GetStat() (int, int) {
 	return m.completed, m.inprogress
 }
 
-func buildBlocks(pieceID, pieceSize int) []Block {
+func buildBlocks(pieceId, pieceSize int) ([]Block, int) {
 	if pieceSize <= 0 {
-		return nil
+		return nil, 0
 	}
 
-	totalBlocks := (pieceSize + REQUEST_SIZE - 1) / REQUEST_SIZE
+	totalBlocks := (pieceSize + BLOCK_SIZE - 1) / BLOCK_SIZE
 	blocks := make([]Block, totalBlocks)
 
 	for i := range blocks {
-		offset := i * REQUEST_SIZE
-		blocks[i] = Block{Piece: pieceID, Offset: offset, Length: min(REQUEST_SIZE, pieceSize-offset)}
+		offset := i * BLOCK_SIZE
+		blocks[i] = Block{Piece: pieceId, Offset: offset, Length: min(BLOCK_SIZE, pieceSize-offset)}
 	}
 
-	return blocks
+	return blocks, totalBlocks
 }
 
 // NextBlock atomically reserves a block for a peer.
-func (m *Manager) NextBlock(peerID string) *Block {
+func (m *Manager) NextBlock(peerId string) *Block {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.nextNewBlock(peerID)
+	return m.nextNewBlock(peerId)
 }
 
-func (m *Manager) nextNewBlock(peerID string) *Block {
-	pieceIndex := m.Pick(peerID)
+func (m *Manager) nextNewBlock(peerId string) *Block {
+	pieceIndex := m.Pick(peerId)
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return nil
 	}
@@ -100,44 +104,39 @@ func (m *Manager) nextNewBlock(peerID string) *Block {
 	}
 
 	block.Requested = true
-	block.RequestedBy = peerID
+	block.RequestedBy = peerId
 	block.startedAt = time.Now()
 
 	return block
 }
 
-func (m *Manager) ReleaseBlock(peerID string, pieceIndex, offset int) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *Manager) ReleaseBlock(peerId string, pieceIndex, offset int) bool {
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return false
 	}
 
-	block := m.Pieces[pieceIndex].blockAt(offset)
-	if block == nil || !block.Requested || block.RequestedBy != peerID || block.Completed {
-		return false
-	}
+	piece := m.Pieces[pieceIndex]
+	piece.resetBlock(peerId, offset)
 
-	block.Requested = false
-	block.RequestedBy = ""
-	block.startedAt = time.Time{}
-	m.ReleaseQue[block.Piece] = 0
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	m.ReleaseQue[pieceIndex] = 0
 	return true
 }
 
 // RemovePeer releases all blocks owned by a disconnected peer.
 // Todo: Will implement via queue.
-func (m *Manager) RemovePeer(peerID string) {
+func (m *Manager) RemovePeer(peerId string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.removeWithoutLock(peerID)
+	m.removeWithoutLock(peerId)
 	for _, p := range m.Pieces {
 		for i := range p.Blocks {
 			b := &p.Blocks[i]
-			if b.Requested && b.RequestedBy == peerID {
+			if b.Requested && b.RequestedBy == peerId {
+				log.Printf("==================invalid block found for peer %v, (%v | %v)", b.RequestedBy, p.Index, b.Offset)
 				b.Requested = false
 				b.RequestedBy = ""
 				b.startedAt = time.Time{}
@@ -148,26 +147,13 @@ func (m *Manager) RemovePeer(peerID string) {
 	}
 }
 
-func (m *Manager) CompleteBlock(peerID string, pieceIndex, offset int, data []byte) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *Manager) CompleteBlock(peerId string, pieceIndex, offset int, data []byte) bool {
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return false
 	}
 
-	block := m.Pieces[pieceIndex].blockAt(offset)
-	if block == nil || !block.Requested || block.RequestedBy != peerID || block.Completed || len(data) != block.Length {
-		return false
-	}
-
-	block.Data = data
-	block.Completed = true
-	block.Requested = false
-	block.RequestedBy = ""
-	block.startedAt = time.Time{}
-
-	return true
+	piece := m.Pieces[pieceIndex]
+	return piece.completeBlock(peerId, offset, data)
 }
 
 func (m *Manager) IsPieceReady(index int) bool {
@@ -186,54 +172,20 @@ func (m *Manager) IsPieceReady(index int) bool {
 	return p.Completed()
 }
 
-// CompletePiece verifies a fully received piece and persists it. The manager
-// mutex is deliberately not held while storage I/O occurs.
-// Todo: Flow is ambigius also problem in peer
-func (m *Manager) CompletePiece(index int) error {
-	m.mu.Lock()
+func (m *Manager) SaveCompletePiece(index int) error {
 	if index < 0 || index >= len(m.Pieces) {
-		m.mu.Unlock()
 		return fmt.Errorf("invalid piece index %d", index)
 	}
 
-	p := m.Pieces[index]
-	if p.Verifying || !p.Completed() {
-		m.mu.Unlock()
-		return nil
+	piece := m.Pieces[index]
+
+	if err := piece.saveCompletePiece(m.storage); err != nil {
+		return err
 	}
 
-	p.Verifying = true
-	data := make([]byte, 0, p.Length)
-	for i := range p.Blocks {
-		data = append(data, p.Blocks[i].Data...)
-	}
-	hashOK := p.Verify()
-	m.mu.Unlock()
-
-	if !hashOK {
-		m.mu.Lock()
-		m.resetPieceLocked(p)
-		m.mu.Unlock()
-		return fmt.Errorf("piece %d failed SHA-1 verification", index)
-	}
-
-	if m.storage != nil {
-		if err := m.storage.WritePiece(index, data); err != nil {
-			m.mu.Lock()
-			m.resetPieceLocked(p)
-			m.mu.Unlock()
-			return fmt.Errorf("write piece %d: %w", index, err)
-		}
-	}
-
-	m.mu.Lock()
-	p.Verifying = false
 	m.Have.SetIndex(index)
-
 	m.completed++
 
-	p.Blocks = nil // persisted successfully; release the piece buffer
-	m.mu.Unlock()
 	return nil
 }
 
