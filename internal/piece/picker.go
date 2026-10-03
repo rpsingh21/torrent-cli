@@ -78,18 +78,6 @@ func (m *Manager) sequential(peerID string) int {
 		return -1
 	}
 
-	// Todo: Refactor
-	// pieceId, ok := m.releaseQue.Peek()
-	// if ok {
-	// 	if m.canPick(peerpieces, pieceId) {
-	// 		m.releaseQue.Pop()
-	// 		m.next = pieceId
-	// 		return pieceId
-	// 	} else if m.Pieces[pieceId].NextMissingBlock() == nil {
-	// 		m.releaseQue.Pop()
-	// 	}
-	// }
-
 	for k := range m.ReleaseQue {
 		if m.Pieces[k].NextMissingBlock() == nil {
 			delete(m.ReleaseQue, k)
