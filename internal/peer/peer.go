@@ -260,7 +260,7 @@ func (p *Peer) pendingCount() int {
 
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
-	log.Printf("peer: %v releaseAllPending_called (%v)====================", p.Addr, len(p.pending))
+	log.Printf("peer: %v releaseAllPending_called (%v)", p.Addr, len(p.pending))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)

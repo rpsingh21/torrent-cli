@@ -128,7 +128,7 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 	wg.Go(func() {
 		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
 			downloaded := p.stat.Snapshot().Downloaded
-			log.Printf("Peer %s failed: %v, Downloaded = %v", p.Addr, err.Error(), downloaded/1000)
+			log.Printf("Peer %s failed: %v, Downloaded = %vKB", p.Addr, err.Error(), downloaded/1000)
 		}
 		p.Close()
 		m.removePeer(p)
@@ -136,7 +136,6 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 }
 
 func (m *Manager) removePeer(p *Peer) {
-	log.Printf("peer %v Manager recive for manager remove peer", p.Addr)
 	if p == nil {
 		return
 	}

@@ -76,10 +76,6 @@ func parsePeers(v any) ([]*peer.Peer, error) {
 			}
 			port := strconv.Itoa(int(port64))
 
-			// var id string
-			// if idBytes, ok := m["peer id"].([]byte); ok {
-			// 	id = string(idBytes)
-			// }
 			result = append(result, newPeer(string(ipBytes), port))
 		}
 		return result, nil
