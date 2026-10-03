@@ -53,7 +53,7 @@ func main() {
 	if *torrentFilePath != "" {
 		app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
 		if err != nil {
-			log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
+			log.Fatalf("Failed to start download: %v", err)
 		}
 
 		if err := app.Download(ctx); err != nil {
@@ -62,7 +62,7 @@ func main() {
 	} else if *magnetLink != "" {
 		app, err := app.NewAppFromMagnetLink(ctx, *magnetLink, outputDir)
 		if err != nil {
-			log.Fatalf("Failed to load torrent file %q: %v", *torrentFilePath, err)
+			log.Fatalf("Failed to start download: %v", err)
 		}
 
 		if err := app.Download(ctx); err != nil {
