@@ -4,18 +4,17 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/storage"
 )
 
 type Piece struct {
 	Index  int
-	Offset int
 	Length int
 	HashV1 [20]byte
 	Blocks []Block
 
+	buffer          []byte
 	mu              sync.Mutex
 	toatalBlock     int
 	downloadedBlock int
@@ -24,7 +23,7 @@ type Piece struct {
 func (p *Piece) NextMissingBlock() *Block {
 	for i := range p.Blocks {
 		block := &p.Blocks[i]
-		if block.Completed || block.Requested {
+		if block.Completed || block.RequestedBy != "" {
 			continue
 		}
 
@@ -55,16 +54,22 @@ func (p *Piece) completeBlock(peerId string, offset int, data []byte) bool {
 	defer p.mu.Unlock()
 
 	block := p.blockAt(offset)
-	if block == nil || !block.Requested || block.RequestedBy != peerId || block.Completed || len(data) != block.Length {
+	if block == nil || block.RequestedBy != peerId || block.Completed || len(data) != block.Length {
 		return false
 	}
 
-	block.Data = data
-	block.Completed = true
-	block.Requested = false
-	block.RequestedBy = ""
-	block.startedAt = time.Time{}
+	if p.buffer == nil {
+		p.buffer = make([]byte, 0, p.Length)
+	}
 
+	end := offset + len(data)
+	if end > len(p.buffer) {
+		p.buffer = p.buffer[:end]
+	}
+	copy(p.buffer[offset:end], data)
+
+	block.Completed = true
+	block.RequestedBy = ""
 	p.downloadedBlock++
 
 	return true
@@ -78,19 +83,15 @@ func (p *Piece) saveCompletePiece(store storage.Storage) error {
 		return fmt.Errorf("piece %v does not have buffer data to write", p.Index)
 	}
 
-	data := make([]byte, 0, p.Length)
-	for i := range p.Blocks {
-		data = append(data, p.Blocks[i].Data...)
-	}
-
-	if sha1.Sum(data) != p.HashV1 {
+	if sha1.Sum(p.buffer) != p.HashV1 {
 		return fmt.Errorf("piece %d failed SHA-1 verification", p.Index)
 	}
 
-	if err := store.WritePiece(p.Index, data); err != nil {
+	if err := store.WritePiece(p.Index, p.buffer); err != nil {
 		return err
 	}
 
+	p.buffer = nil
 	p.Blocks = nil
 
 	return nil
@@ -101,7 +102,7 @@ func (p *Piece) resetBlock(peerId string, offset int) bool {
 	defer p.mu.Unlock()
 
 	block := p.blockAt(offset)
-	if block == nil || !block.Requested || block.RequestedBy != peerId || block.Completed {
+	if block == nil || block.RequestedBy != peerId || block.Completed {
 		return false
 	}
 
@@ -121,5 +122,6 @@ func (p *Piece) resetAllBlock() {
 		block.resetDownload()
 	}
 
+	p.buffer = nil
 	p.downloadedBlock = 0
 }

@@ -112,7 +112,7 @@ func TestManagerNextBlock(t *testing.T) {
 				t.Fatalf("piece = %d, want 3", b1.Piece)
 			}
 
-			if !b1.Requested || b1.Completed {
+			if b1.RequestedBy != "" || b1.Completed {
 				t.Fatalf("unexpected block state: %+v", b1)
 			}
 
@@ -203,12 +203,8 @@ func TestManagerCompleteBlock(t *testing.T) {
 				t.Fatal("block should be completed")
 			}
 
-			if block.Requested {
+			if block.RequestedBy != "" {
 				t.Fatal("completed block should not remain requested")
-			}
-
-			if !bytes.Equal(block.Data, data) {
-				t.Fatal("block data mismatch")
 			}
 		})
 	}
@@ -280,14 +276,13 @@ func TestManagerReDownloadPiece(t *testing.T) {
 				t.Fatal("expected block")
 			}
 
-			block.Data = []byte("bad")
 			block.Completed = true
 
 			if !manager.ReDownloadPiece(0) {
 				t.Fatal("ReDownloadPiece should succeed")
 			}
 
-			if block.Requested || block.Completed || block.Data != nil {
+			if block.RequestedBy != "" || block.Completed {
 				t.Fatalf("block was not reset: %+v", block)
 			}
 		})

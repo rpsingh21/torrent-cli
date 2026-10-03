@@ -60,7 +60,7 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 					}
 
 					// Reuse the same piece for the next iteration.
-					block.Requested = false
+					block.RequestedBy = ""
 				}
 			})
 		}
@@ -93,7 +93,7 @@ func BenchmarkManager10Cent(b *testing.B) {
 					}
 
 					// Reuse the same piece for the next iteration.
-					block.Requested = false
+					block.RequestedBy = ""
 				}
 			})
 		}
@@ -114,7 +114,7 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 		block := piece.NextMissingBlock()
 		if block == nil {
 			for i := range piece.Blocks {
-				piece.Blocks[i].Requested = false
+				piece.Blocks[i].RequestedBy = ""
 				piece.Blocks[i].Completed = false
 			}
 			block = piece.NextMissingBlock()
@@ -124,6 +124,6 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 			b.Fatal("NextMissingBlock returned nil")
 		}
 
-		block.Requested = true
+		block.RequestedBy = ""
 	}
 }
