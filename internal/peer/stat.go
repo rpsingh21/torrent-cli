@@ -2,14 +2,10 @@ package peer
 
 import (
 	"sync"
-	"time"
 )
 
 type Stat struct {
 	mu sync.RWMutex
-
-	DownloadLatency    time.Duration
-	MinDownloadLatency time.Duration
 
 	DownloadRate int64
 	UploadRate   int64
@@ -30,9 +26,6 @@ type StatSnapshot struct {
 	Downloaded int64
 	Uploaded   int64
 
-	DownloadLatency    time.Duration
-	MinDownloadLatency time.Duration
-
 	RequestsSent      int64
 	RequestsCompleted int64
 	Timeouts          int64
@@ -45,32 +38,11 @@ func (s *Stat) AddDownloaded(n int) {
 	s.mu.Unlock()
 }
 
-func (s *Stat) updateDownloadWithLatency(n int, latency time.Duration) {
+func (s *Stat) GetRequestsCompleted() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.Downloaded += int64(n)
-
-	if s.MinDownloadLatency == 0 || latency < s.MinDownloadLatency {
-		s.MinDownloadLatency = latency
-	}
-
-	if s.DownloadLatency == 0 {
-		s.DownloadLatency = latency
-		return
-	}
-
-	currDownloadRate := int64(float64(n) / latency.Seconds())
-	s.DownloadRate = (2*currDownloadRate + 8*s.DownloadRate) / 10
-
-	s.DownloadLatency = (2*latency + 8*s.DownloadLatency) / 10
-}
-
-func (s *Stat) queueDelayAndDowloadrateSnapshot() (time.Duration, int64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.DownloadLatency - s.MinDownloadLatency, s.DownloadRate
+	return s.RequestsCompleted
 }
 
 func (s *Stat) AddUploaded(n int) {
@@ -107,9 +79,6 @@ func (s *Stat) Snapshot() StatSnapshot {
 
 		Downloaded: s.Downloaded,
 		Uploaded:   s.Uploaded,
-
-		DownloadLatency:    s.DownloadLatency,
-		MinDownloadLatency: s.MinDownloadLatency,
 
 		RequestsSent:      s.RequestsSent,
 		RequestsCompleted: s.RequestsCompleted,

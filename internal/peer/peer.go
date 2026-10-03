@@ -211,11 +211,11 @@ func (p *Peer) handleMessage(message *Message) error {
 		key := requestKey{piece: int(block.Index), offset: int(block.Begin)}
 
 		p.pendingMu.Lock()
-		startTime, pending := p.pending[key]
+		_, pending := p.pending[key]
 		if pending {
 			delete(p.pending, key)
 		}
-		p.stat.updateDownloadWithLatency(len(block.Data), time.Since(startTime))
+		p.stat.AddDownloaded(len(block.Data))
 		p.pendingMu.Unlock()
 
 		// Todo: Check is valid case
@@ -224,16 +224,16 @@ func (p *Peer) handleMessage(message *Message) error {
 			return nil
 		}
 
+		// Todo: ambiguous imp
 		if !p.pieceManager.CompleteBlock(p.Addr, int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 		}
 
 		p.stat.IncRequestsCompleted()
-		// p.stat.AddDownloaded(len(block.Data))
 
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
 			if err := p.pieceManager.CompletePiece(int(block.Index)); err != nil {
-				p.dropPendingPiece(int(block.Index))
+				p.pieceManager.ReDownloadPiece(int(block.Index))
 				log.Printf("piece %d rejected: %v", block.Index, err)
 			}
 		}
@@ -250,22 +250,6 @@ func (p *Peer) handleMessage(message *Message) error {
 	}
 
 	return nil
-}
-
-func (p *Peer) dropPendingPiece(pieceIndex int) {
-	p.pendingMu.Lock()
-	var keys []requestKey
-	for key := range p.pending {
-		if key.piece == pieceIndex {
-			keys = append(keys, key)
-			delete(p.pending, key)
-		}
-	}
-	p.pendingMu.Unlock()
-
-	for _, key := range keys {
-		p.pieceManager.ReleaseBlock(p.Addr, key.piece, key.offset)
-	}
 }
 
 func (p *Peer) pendingCount() int {
@@ -293,11 +277,13 @@ func (p *Peer) controllerLoop(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
+	lastCompletedBlock := 0
+
 	for {
 		select {
 		case <-ticker.C:
 			if !p.Choked {
-				p.updateRequestWindow()
+				lastCompletedBlock = p.updateRequestWindow(lastCompletedBlock)
 			}
 
 		case <-ctx.Done():
@@ -306,31 +292,18 @@ func (p *Peer) controllerLoop(ctx context.Context) {
 	}
 }
 
-func (p *Peer) updateRequestWindow() {
-	queueDelay, downloadRate := p.stat.queueDelayAndDowloadrateSnapshot()
+func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
+	blockCompleted := int(p.stat.GetRequestsCompleted())
+	completedInWC := blockCompleted - lastCompletedBlock
 
-	if p.maxBlockRequest > 2 && queueDelay > REQUEST_TIMEOUT*2/3 {
-		p.maxBlockRequest = max(2, p.maxBlockRequest>>1)
-		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)",
-			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded)
-		return
+	if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
+		log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
+			p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
+			completedInWC-p.maxBlockRequest)
 	}
+	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
 
-	throughputBlockSize := int(max(2, (downloadRate*10)/16384))
-
-	if p.maxBlockRequest > throughputBlockSize && queueDelay > REQUEST_TIMEOUT/3 {
-		p.maxBlockRequest = max(throughputBlockSize, p.maxBlockRequest-8)
-		log.Printf("peer %v Decrease %v latency: %v queueDelay: %v peer rate: (%v | %v)",
-			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded)
-		return
-	}
-
-	if p.maxBlockRequest < MAX_REQUESTS_PER_PEER && queueDelay > 0 && queueDelay < 1*time.Second {
-		p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, p.maxBlockRequest<<1)
-		log.Printf("peer %v Increase %v latency: %v queueDelay: %v peer rate: (%v | %v) | %v",
-			p.Addr, p.maxBlockRequest, p.stat.DownloadLatency, queueDelay, downloadRate, p.stat.Downloaded, throughputBlockSize)
-		return
-	}
+	return blockCompleted
 }
 
 func (p *Peer) Close() error {
