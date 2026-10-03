@@ -16,11 +16,14 @@ type Piece struct {
 
 	buffer          []byte
 	mu              sync.Mutex
-	toatalBlock     int
 	downloadedBlock int
 }
 
 func (p *Piece) NextMissingBlock() *Block {
+	if p.Blocks == nil {
+		p.Blocks = buildBlocks(p.Index, p.Length)
+	}
+
 	for i := range p.Blocks {
 		block := &p.Blocks[i]
 		if block.Completed || block.RequestedBy != "" {
@@ -33,9 +36,25 @@ func (p *Piece) NextMissingBlock() *Block {
 	return nil
 }
 
+func buildBlocks(pieceId, pieceSize int) []Block {
+	if pieceSize <= 0 {
+		return nil
+	}
+
+	totalBlocks := (pieceSize + BLOCK_SIZE - 1) / BLOCK_SIZE
+	blocks := make([]Block, totalBlocks)
+
+	for i := range blocks {
+		offset := i * BLOCK_SIZE
+		blocks[i] = Block{Piece: pieceId, Offset: offset, Length: min(BLOCK_SIZE, pieceSize-offset)}
+	}
+
+	return blocks
+}
+
 func (p *Piece) blockAt(offset int) *Block {
 	index := offset / BLOCK_SIZE
-	if index < p.toatalBlock {
+	if index < len(p.Blocks) {
 		return &p.Blocks[index]
 	}
 
@@ -46,7 +65,7 @@ func (p *Piece) Completed() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.toatalBlock == p.downloadedBlock
+	return len(p.Blocks) == p.downloadedBlock
 }
 
 func (p *Piece) completeBlock(peerId string, offset int, data []byte) bool {

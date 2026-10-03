@@ -74,7 +74,7 @@ func TestBuildBlocks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := buildBlocks(tt.pieceID, tt.pieceSize)
+			got := buildBlocks(tt.pieceID, tt.pieceSize)
 
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d blocks, want %d", len(got), len(tt.want))

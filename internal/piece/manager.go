@@ -36,14 +36,11 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 	for i, hash := range meta.PieceHashes {
 		remaining := meta.TotalSize - int64(i)*meta.PieceLength
 		pieceSize := int(min(meta.PieceLength, remaining))
-		blocks, size := buildBlocks(i, pieceSize)
 
 		pieces[i] = &Piece{
 			Index:           i,
 			Length:          pieceSize,
 			HashV1:          hash,
-			Blocks:          blocks,
-			toatalBlock:     size,
 			downloadedBlock: 0,
 		}
 	}
@@ -66,22 +63,6 @@ func (m *Manager) GetStat() (int, int) {
 	defer m.mu.Unlock()
 
 	return m.completed, m.inprogress
-}
-
-func buildBlocks(pieceId, pieceSize int) ([]Block, int) {
-	if pieceSize <= 0 {
-		return nil, 0
-	}
-
-	totalBlocks := (pieceSize + BLOCK_SIZE - 1) / BLOCK_SIZE
-	blocks := make([]Block, totalBlocks)
-
-	for i := range blocks {
-		offset := i * BLOCK_SIZE
-		blocks[i] = Block{Piece: pieceId, Offset: offset, Length: min(BLOCK_SIZE, pieceSize-offset)}
-	}
-
-	return blocks, totalBlocks
 }
 
 // NextBlock atomically reserves a block for a peer.
