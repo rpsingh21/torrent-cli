@@ -10,12 +10,11 @@ import (
 )
 
 type Piece struct {
-	Index     int
-	Offset    int
-	Length    int
-	HashV1    [20]byte
-	Blocks    []Block
-	Verifying bool
+	Index  int
+	Offset int
+	Length int
+	HashV1 [20]byte
+	Blocks []Block
 
 	mu              sync.Mutex
 	toatalBlock     int
@@ -45,32 +44,10 @@ func (p *Piece) blockAt(offset int) *Block {
 }
 
 func (p *Piece) Completed() bool {
-	// for i := range p.Blocks {
-	// 	if !p.Blocks[i].Completed {
-	// 		return false
-	// 	}
-	// }
-	// return true
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	return p.toatalBlock == p.downloadedBlock
-}
-
-func (p *Piece) Verify() bool {
-	if len(p.Blocks) == 0 {
-		return false
-	}
-
-	data := make([]byte, 0, p.Length)
-	for i := range p.Blocks {
-		if !p.Blocks[i].Completed || len(p.Blocks[i].Data) != p.Blocks[i].Length {
-			return false
-		}
-		data = append(data, p.Blocks[i].Data...)
-	}
-	return sha1.Sum(data) == p.HashV1
 }
 
 func (p *Piece) completeBlock(peerId string, offset int, data []byte) bool {

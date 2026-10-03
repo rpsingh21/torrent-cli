@@ -253,7 +253,7 @@ func TestManagerCompletePiece(t *testing.T) {
 				t.Fatal("CompletePiece should succeed")
 			}
 
-			if !manager.IsComplete(0) {
+			if !manager.IsPieceComplete(0) {
 				t.Fatal("piece should be complete")
 			}
 

@@ -2,6 +2,7 @@ package piece
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -142,15 +143,12 @@ func (m *Manager) CompleteBlock(peerId string, pieceIndex, offset int, data []by
 }
 
 func (m *Manager) IsPieceReady(index int) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if index < 0 || index >= len(m.Pieces) {
 		return false
 	}
 
 	p := m.Pieces[index]
-	if p.Verifying || len(p.Blocks) == 0 {
+	if len(p.Blocks) == 0 {
 		return false
 	}
 
@@ -165,6 +163,10 @@ func (m *Manager) SaveCompletePiece(index int) error {
 	piece := m.Pieces[index]
 
 	if err := piece.saveCompletePiece(m.storage); err != nil {
+		if m.Have.Have(index) {
+			log.Printf("piece already store in storage. hence raiseing, %v", err)
+			return nil
+		}
 		return err
 	}
 
@@ -174,7 +176,7 @@ func (m *Manager) SaveCompletePiece(index int) error {
 	return nil
 }
 
-func (m *Manager) IsComplete(index int) bool {
+func (m *Manager) IsPieceComplete(index int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return index >= 0 && index < len(m.Pieces) && m.Have.Have(index)
@@ -188,12 +190,14 @@ func (m *Manager) Completed() bool {
 }
 
 func (m *Manager) ReDownloadPiece(index int) bool {
-	if index < 0 || index >= len(m.Pieces) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if index < 0 || index >= len(m.Pieces) || m.Have.Have(index) {
 		return false
 	}
 
 	m.Pieces[index].resetAllBlock()
 
-	m.Have.ClearIndex(index)
 	return true
 }

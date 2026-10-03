@@ -126,5 +126,5 @@ func (m *Manager) endGame(peerID string) int {
 
 // Todo Review m.Pieces[index].NextMissingBlock() != nil
 func (m *Manager) canPick(peerpieces *bitfield.Bitfield, index int) bool {
-	return peerpieces.Have(index) && !m.Have.Have(index) && !m.Pieces[index].Verifying && m.Pieces[index].NextMissingBlock() != nil
+	return peerpieces.Have(index) && !m.Have.Have(index) && m.Pieces[index].NextMissingBlock() != nil
 }
