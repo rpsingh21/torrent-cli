@@ -1,12 +1,12 @@
 package peer
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -15,44 +15,43 @@ import (
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
 )
 
-const KEEPALIVE_TIMEOUT = 30 * time.Second
-
-// const KEEPALIVE_TIMEOUT = 2 * time.Minute
-
+// Todo: Will remove once cleanup piece package
+// Will use block. block without data
+// Data store on piece level
 type requestKey struct {
 	piece  int
 	offset int
 }
 
 type Peer struct {
-	ID               string
-	IP               string
-	Port             uint16
-	metaInfo         *torrent.MetaInfo
-	Connection       *Connection
+	PeerId string
+	Addr   string
+
 	Choked           bool
 	Interested       bool
 	RemoteChoked     bool
 	RemoteInterested bool
-	stat             *Stat
-	pieceManager     *piece.Manager
-	removeChan       chan *Peer
-	bitfield         *bitfield.Bitfield
-	pending          map[requestKey]time.Time
-	pendingMu        sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	lateBlocks       int
-	pendingMessage   chan Message
+
+	maxBlockRequest int
+
+	pending   map[requestKey]time.Time
+	pendingMu sync.Mutex
+
+	conn   net.Conn
+	reader *bufio.Reader
+
+	metaInfo     *torrent.MetaInfo
+	pieceManager *piece.Manager
+
+	bitfield *bitfield.Bitfield
+	stat     *Stat
 }
 
-func NewPeer(id, ip string, port uint16, metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Peer {
+func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
 	return &Peer{
-		ID:           id,
-		IP:           ip,
-		Port:         port,
+		PeerId:       id,
+		Addr:         addr,
 		metaInfo:     metaInfo,
-		pieceManager: pieceManager,
 		stat:         &Stat{},
 		Choked:       true,
 		RemoteChoked: true,
@@ -60,18 +59,13 @@ func NewPeer(id, ip string, port uint16, metaInfo *torrent.MetaInfo, pieceManage
 	}
 }
 
-func (p *Peer) Key() string {
-	return net.JoinHostPort(p.IP, strconv.Itoa(int(p.Port)))
-}
-
-func (p *Peer) schedulerID() string {
-	return p.Key()
-}
-
-func (p *Peer) Start(parent context.Context) error {
+func (p *Peer) Start(pctx context.Context) error {
 	if p.metaInfo == nil || p.pieceManager == nil {
 		return fmt.Errorf("peer is missing metainfo or piece manager")
 	}
+
+	// init while create
+	p.maxBlockRequest = 16
 
 	if p.pending == nil {
 		p.pending = make(map[requestKey]time.Time)
@@ -80,34 +74,30 @@ func (p *Peer) Start(parent context.Context) error {
 		p.RemoteChoked = true
 	}
 
-	ctx, cancel := context.WithCancel(parent)
-	p.ctx, p.cancel = ctx, cancel
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	address := p.Key()
-	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
+	conn, err := dialer.DialContext(ctx, "tcp", p.Addr)
 
 	if err != nil {
 		return err
 	}
+	p.conn = conn
+	p.reader = bufio.NewReader(conn)
 
-	p.Connection = NewConnection(ctx, conn, p.metaInfo.InfoHash, p.metaInfo.AppId)
-	defer p.Connection.Close()
-
-	if _, err := p.Connection.Handshake(); err != nil {
+	if _, err := p.Handshake(); err != nil {
 		return err
 	}
 
-	if _, err := p.Connection.WriteMessage(&Message{ID: MsgInterested}); err != nil {
+	if _, err := p.WriteMessage(&Message{ID: MsgInterested}); err != nil {
 		return err
 	}
 
 	p.Interested = true
 	p.Choked = true
 
-	go p.requestExpirationLoop()
-
+	go p.controllerLoop(ctx)
 	return p.messageLoop()
 }
 
@@ -117,11 +107,13 @@ func (p *Peer) messageLoop() error {
 			return err
 		}
 
-		p.Connection.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
-
-		message, err := p.Connection.ReadMessage()
+		message, err := p.ReadMessage()
 		if err != nil {
-			return fmt.Errorf("read error or keepalive timeout: %w", err)
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return fmt.Errorf("peer %s timed out waiting for message: %w", p.Addr, err)
+			}
+
+			return fmt.Errorf("read message from peer %s: %w", p.Addr, err)
 		}
 
 		if message == nil {
@@ -139,9 +131,8 @@ func (p *Peer) fillRequests() error {
 		return nil
 	}
 
-	// Todo Limit dynamic (back pressure based on dowload limit)
-	for p.pendingCount() < REQUESTS_PER_PEER {
-		block := p.pieceManager.NextBlock(p.schedulerID())
+	for p.pendingCount() < p.maxBlockRequest {
+		block := p.pieceManager.NextBlock(p.Addr)
 		if block == nil {
 			break
 		}
@@ -153,8 +144,8 @@ func (p *Peer) fillRequests() error {
 			Payload: (&Request{Index: uint32(block.Piece), Begin: uint32(block.Offset), Length: uint32(block.Length)}).Encode(),
 		}
 
-		if n, err := p.Connection.WriteMessage(message); err != nil {
-			p.pieceManager.ReleaseBlock(p.schedulerID(), block.Piece, block.Offset)
+		if n, err := p.WriteMessage(message); err != nil {
+			p.pieceManager.ReleaseBlock(p.Addr, block.Piece, block.Offset)
 			return err
 		} else {
 			p.stat.AddUploaded(n)
@@ -172,26 +163,25 @@ func (p *Peer) handleMessage(message *Message) error {
 	switch message.ID {
 	case MsgChoke:
 		p.Choked = true
-		p.releaseAllPending()
 
 	case MsgUnchoke:
 		p.Choked = false
 
 	case MsgBitfield:
-		wantBytes := (p.pieceManager.Metainfo.TotalPices + 7) / 8
+		wantBytes := (p.pieceManager.Metainfo.TotalPices + 7) >> 3
 		if len(message.Payload) != wantBytes {
 			return fmt.Errorf("invalid bitfield length %d, want %d %+v", len(message.Payload), wantBytes, p.pieceManager.Metainfo)
 		}
 		bf := bitfield.NewBitfieldFromBytes(message.Payload, p.pieceManager.Metainfo.TotalPices)
 		if bf == nil {
-			return fmt.Errorf("invalid bitfield from %s", p.Key())
+			return fmt.Errorf("invalid bitfield from %s", p.Addr)
 		}
 		p.bitfield = bf
-		p.pieceManager.AddPeer(p.schedulerID(), bf)
+		p.pieceManager.AddPeer(p.Addr, bf)
 
 	case MsgHave:
 		if len(message.Payload) != 4 || p.bitfield == nil {
-			return fmt.Errorf("invalid have message from %s", p.Key())
+			return fmt.Errorf("invalid have message from %s", p.Addr)
 		}
 		pieceIndex := binary.BigEndian.Uint32(message.Payload)
 		if pieceIndex >= uint32(p.pieceManager.Metainfo.TotalPices) {
@@ -199,7 +189,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 		if !p.bitfield.Have(int(pieceIndex)) {
 			p.bitfield.SetIndex(int(pieceIndex))
-			p.pieceManager.PeerHasPiece(p.schedulerID(), int(pieceIndex))
+			p.pieceManager.PeerHasPiece(p.Addr, int(pieceIndex))
 		}
 
 	case MsgHaveAll:
@@ -207,11 +197,11 @@ func (p *Peer) handleMessage(message *Message) error {
 		for i := 0; i < p.pieceManager.Metainfo.TotalPices; i++ {
 			p.bitfield.SetIndex(i)
 		}
-		p.pieceManager.AddPeer(p.schedulerID(), p.bitfield)
+		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgHaveNone:
 		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
-		p.pieceManager.AddPeer(p.schedulerID(), p.bitfield)
+		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgPiece:
 		block, err := ParsePiece(message.Payload)
@@ -219,43 +209,31 @@ func (p *Peer) handleMessage(message *Message) error {
 			return err
 		}
 		key := requestKey{piece: int(block.Index), offset: int(block.Begin)}
+
 		p.pendingMu.Lock()
 		_, pending := p.pending[key]
 		if pending {
 			delete(p.pending, key)
-
-			// REFRESH TIMEOUTS: The peer is actively sending data.
-			// now := time.Now()
-			// for k := range p.pending {
-			// 	p.pending[k] = now
-			// }
 		}
+		p.stat.AddDownloaded(len(block.Data))
 		p.pendingMu.Unlock()
 
-		// Todo: Refactor pending section
+		// Todo: Check is valid case
 		if !pending {
-			// Downgrade from a fatal error to a simple log.
-			// The request timed out, but the peer eventually sent it anyway.
-			p.lateBlocks++
-
-			// This limit optimize (back pressure)
-			if p.lateBlocks > 0 {
-				// Drop the peer completely for wasting bandwidth
-				return fmt.Errorf("peer is too slow and sent too many expired blocks, dropping connection")
-			}
-
-			// log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+			log.Printf("ignoring unsolicited/timed-out piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 			return nil
 		}
 
-		if !p.pieceManager.CompleteBlock(p.schedulerID(), int(block.Index), int(block.Begin), block.Data) {
-			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Key())
+		// Todo: ambiguous imp
+		if !p.pieceManager.CompleteBlock(p.Addr, int(block.Index), int(block.Begin), block.Data) {
+			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 		}
+
 		p.stat.IncRequestsCompleted()
-		p.stat.AddDownloaded(len(block.Data))
+
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
 			if err := p.pieceManager.CompletePiece(int(block.Index)); err != nil {
-				p.dropPendingPiece(int(block.Index))
+				p.pieceManager.ReDownloadPiece(int(block.Index))
 				log.Printf("piece %d rejected: %v", block.Index, err)
 			}
 		}
@@ -274,63 +252,15 @@ func (p *Peer) handleMessage(message *Message) error {
 	return nil
 }
 
-func (p *Peer) requestExpirationLoop() {
-	// Check for expired requests every few seconds
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.expireRequests()
-		}
-	}
-}
-
-func (p *Peer) dropPendingPiece(pieceIndex int) {
-	p.pendingMu.Lock()
-	var keys []requestKey
-	for key := range p.pending {
-		if key.piece == pieceIndex {
-			keys = append(keys, key)
-			delete(p.pending, key)
-		}
-	}
-	p.pendingMu.Unlock()
-
-	for _, key := range keys {
-		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
-	}
-}
-
 func (p *Peer) pendingCount() int {
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
 	return len(p.pending)
 }
 
-func (p *Peer) expireRequests() {
-	now := time.Now()
-	var expired []requestKey
-	p.pendingMu.Lock()
-	for key, started := range p.pending {
-		if now.Sub(started) >= REQUEST_TIMEOUT*time.Second {
-			expired = append(expired, key)
-			delete(p.pending, key)
-		}
-	}
-	p.pendingMu.Unlock()
-
-	for _, key := range expired {
-		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
-		p.stat.IncTimeouts()
-	}
-}
-
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
+	log.Printf("peer: %v releaseAllPending_called (%v)", p.Addr, len(p.pending))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)
@@ -339,18 +269,47 @@ func (p *Peer) releaseAllPending() {
 	p.pendingMu.Unlock()
 
 	for _, key := range pending {
-		p.pieceManager.ReleaseBlock(p.schedulerID(), key.piece, key.offset)
+		p.pieceManager.ReleaseBlock(p.Addr, key.piece, key.offset)
 	}
 }
 
-func (p *Peer) Close() error {
-	if p.cancel != nil {
-		p.cancel()
-	}
+func (p *Peer) controllerLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
 
+	lastCompletedBlock := 0
+
+	for {
+		select {
+		case <-ticker.C:
+			if !p.Choked {
+				lastCompletedBlock = p.updateRequestWindow(lastCompletedBlock)
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
+	blockCompleted := int(p.stat.GetRequestsCompleted())
+	completedInWC := blockCompleted - lastCompletedBlock
+
+	if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
+		log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
+			p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
+			completedInWC-p.maxBlockRequest)
+	}
+	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
+
+	return blockCompleted
+}
+
+func (p *Peer) Close() error {
 	p.releaseAllPending()
-	if p.Connection != nil {
-		return p.Connection.Close()
+	if p.conn != nil {
+		return p.conn.Close()
 	}
 	return nil
 }

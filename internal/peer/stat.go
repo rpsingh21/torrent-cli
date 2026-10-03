@@ -1,13 +1,18 @@
 package peer
 
-import "sync"
+import (
+	"sync"
+)
 
 type Stat struct {
-	mu                sync.RWMutex
-	DownloadRate      int64
-	UploadRate        int64
-	Downloaded        int64
-	Uploaded          int64
+	mu sync.RWMutex
+
+	DownloadRate int64
+	UploadRate   int64
+
+	Downloaded int64
+	Uploaded   int64
+
 	RequestsSent      int64
 	RequestsCompleted int64
 	Timeouts          int64
@@ -15,10 +20,12 @@ type Stat struct {
 }
 
 type StatSnapshot struct {
-	DownloadRate      int64
-	UploadRate        int64
-	Downloaded        int64
-	Uploaded          int64
+	DownloadRate int64
+	UploadRate   int64
+
+	Downloaded int64
+	Uploaded   int64
+
 	RequestsSent      int64
 	RequestsCompleted int64
 	Timeouts          int64
@@ -29,6 +36,13 @@ func (s *Stat) AddDownloaded(n int) {
 	s.mu.Lock()
 	s.Downloaded += int64(n)
 	s.mu.Unlock()
+}
+
+func (s *Stat) GetRequestsCompleted() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.RequestsCompleted
 }
 
 func (s *Stat) AddUploaded(n int) {
@@ -58,9 +72,17 @@ func (s *Stat) IncTimeouts() {
 func (s *Stat) Snapshot() StatSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return StatSnapshot{
-		DownloadRate: s.DownloadRate, UploadRate: s.UploadRate, Downloaded: s.Downloaded,
-		Uploaded: s.Uploaded, RequestsSent: s.RequestsSent, RequestsCompleted: s.RequestsCompleted,
-		Timeouts: s.Timeouts, Errors: s.Errors,
+		DownloadRate: s.DownloadRate,
+		UploadRate:   s.UploadRate,
+
+		Downloaded: s.Downloaded,
+		Uploaded:   s.Uploaded,
+
+		RequestsSent:      s.RequestsSent,
+		RequestsCompleted: s.RequestsCompleted,
+		Timeouts:          s.Timeouts,
+		Errors:            s.Errors,
 	}
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -14,56 +12,54 @@ import (
 )
 
 const (
-	MAX_PEERS         = 1000
-	REQUESTS_PER_PEER = 128
-	REQUEST_TIMEOUT   = 10
+	MAX_PEERS             = 1000
+	MAX_REQUESTS_PER_PEER = 128
+	REQUEST_TIMEOUT       = 30 * time.Second
+	KEEPALIVE_TIMEOUT     = 2 * time.Minute
+	MAX_MESSAGE_LENGTH    = 2 * 1024 * 1024
 )
 
 type Manager struct {
-	activePeer     map[string]*Peer
-	PeerChan       chan *Peer
-	removePeerChan chan *Peer
-	metaInfo       *torrent.MetaInfo
-	pieceManager   *piece.Manager
-	mu             sync.Mutex
-	peersWG        sync.WaitGroup
+	PeerChan     chan *Peer
+	activePeer   map[string]*Peer
+	metaInfo     *torrent.MetaInfo
+	pieceManager *piece.Manager
+	mu           sync.Mutex
 }
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
 	return &Manager{
-		activePeer:     make(map[string]*Peer),
-		PeerChan:       make(chan *Peer, 128),
-		removePeerChan: make(chan *Peer, 128),
-		metaInfo:       metaInfo,
-		pieceManager:   pieceManager,
+		activePeer:   make(map[string]*Peer),
+		PeerChan:     make(chan *Peer, 128),
+		metaInfo:     metaInfo,
+		pieceManager: pieceManager,
 	}
 }
 
 func (m *Manager) Run(ctx context.Context) error {
+	var wg sync.WaitGroup
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	var lastTime = time.Now()
 
+	var lastTime = time.Now()
 	var mbp float64 = 1000_000
 	var kbp float64 = 1000
 	var preDownload, preUpload int64
+	preSnapshot := make(map[string]StatSnapshot)
 
 	for {
 		select {
 		case <-ctx.Done():
 			m.Close()
-			m.peersWG.Wait()
+			wg.Wait()
 			return ctx.Err()
 
 		case p := <-m.PeerChan:
 			if p == nil {
 				continue
 			}
-			m.addPeer(ctx, p)
-
-		case p := <-m.removePeerChan:
-			m.removePeer(p)
+			m.addPeer(ctx, p, &wg)
 
 		case <-ticker.C:
 			now := time.Now()
@@ -73,11 +69,15 @@ func (m *Manager) Run(ctx context.Context) error {
 			var download, upload int64
 			var totalReqs, totalErrs int64
 
+			m.mu.Lock()
 			totalPeer := len(m.activePeer)
 
 			for _, v := range m.activePeer {
-				snap := v.stat.Snapshot()
+				preSnapshot[v.Addr] = v.stat.Snapshot()
+			}
+			m.mu.Unlock()
 
+			for _, snap := range preSnapshot {
 				download += snap.Downloaded
 				upload += snap.Uploaded
 
@@ -94,8 +94,9 @@ func (m *Manager) Run(ctx context.Context) error {
 			completed, inprogress := m.pieceManager.GetStat()
 
 			fmt.Printf(
-				"\r\033[KTotalPeer: %v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | %v]",
+				"\r\033[KTotalPeer: %v/%v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | T: %v]",
 				totalPeer,
+				len(preSnapshot),
 				float64(download)/mbp,
 				downloadRate/mbp,
 				float64(upload)/mbp,
@@ -103,37 +104,34 @@ func (m *Manager) Run(ctx context.Context) error {
 				totalReqs,
 				totalErrs,
 				completed,
-				inprogress,
+				inprogress+1,
 				inprogress-completed,
-				len(m.pieceManager.ReleaseQue), 0,
+				len(m.pieceManager.ReleaseQue),
+				m.metaInfo.TotalPices,
 				// m.pieceManager.ReleaseQue,
 			)
 		}
 	}
 }
 
-func (m *Manager) addPeer(ctx context.Context, p *Peer) {
-	key := p.Key()
+func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 	m.mu.Lock()
-	if _, exists := m.activePeer[key]; exists || len(m.activePeer) >= MAX_PEERS {
+	if _, exists := m.activePeer[p.Addr]; exists || len(m.activePeer) >= MAX_PEERS {
 		m.mu.Unlock()
 		return
 	}
 	p.metaInfo = m.metaInfo
 	p.pieceManager = m.pieceManager
-	p.removeChan = m.removePeerChan
-	m.activePeer[key] = p
+	m.activePeer[p.Addr] = p
 	m.mu.Unlock()
 
-	m.peersWG.Go(func() {
+	wg.Go(func() {
 		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
 			downloaded := p.stat.Snapshot().Downloaded
-			log.Printf("Peer %s failed: %v, Downloaded = %v", key, err.Error(), downloaded/1000)
+			log.Printf("Peer %s failed: %v, Downloaded = %vKB", p.Addr, err.Error(), downloaded/1000)
 		}
-		select {
-		case m.removePeerChan <- p:
-		case <-ctx.Done():
-		}
+		p.Close()
+		m.removePeer(p)
 	})
 }
 
@@ -141,13 +139,12 @@ func (m *Manager) removePeer(p *Peer) {
 	if p == nil {
 		return
 	}
-	key := p.Key()
 
 	m.mu.Lock()
-	delete(m.activePeer, key)
+	delete(m.activePeer, p.Addr)
 	m.mu.Unlock()
 
-	m.pieceManager.RemovePeer(p.schedulerID())
+	m.pieceManager.RemovePeer(p.Addr)
 }
 
 func (m *Manager) Close() {
@@ -167,8 +164,4 @@ func (m *Manager) ActivePeers() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.activePeer)
-}
-
-func (m *Manager) peerKey(p *Peer) string {
-	return net.JoinHostPort(p.IP, strconv.Itoa(int(p.Port)))
 }

@@ -15,23 +15,22 @@ func TestExtendedHandshake(t *testing.T) {
 	}
 
 	peers := []struct {
-		ip   string
-		port uint16
+		addr string
 	}{
-		{"82.15.154.129", 55175},
-		{"178.162.159.33", 49114},
+		{"82.15.154.129:55175"},
+		{"178.162.159.33:49114"},
 	}
 	for _, p := range peers {
-		t.Run(p.ip, func(t *testing.T) {
-			peer := NewPeer(p.ip, p.ip, p.port, metaInfo, nil)
+		t.Run(p.addr, func(t *testing.T) {
+			peer := NewPeer(p.addr, p.addr, metaInfo)
 
 			data, err := peer.DownloadMetadata(t.Context(), metaInfo)
 			if err != nil {
-				t.Logf("peer %s failed metadata download: %v", p.ip, err)
+				t.Logf("peer %s failed metadata download: %v", p.addr, err)
 				return
 			}
 
-			t.Logf("peer %s successfully returned %d bytes", p.ip, len(data))
+			t.Logf("peer %s successfully returned %d bytes", p.addr, len(data))
 		})
 	}
 }

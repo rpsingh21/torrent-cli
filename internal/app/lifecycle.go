@@ -35,7 +35,7 @@ func updateMetainfoFromPeers(ctx context.Context, metaInfo *torrent.MetaInfo) er
 
 			data, err := peer.DownloadMetadata(ctx, metaInfo)
 			if err != nil {
-				log.Printf("Failed while downloading metadata from %v err: %v", peer.IP, err)
+				log.Printf("Failed while downloading metadata from %v err: %v", peer.Addr, err)
 				return
 			}
 
