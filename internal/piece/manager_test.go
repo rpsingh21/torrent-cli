@@ -249,7 +249,7 @@ func TestManagerCompletePiece(t *testing.T) {
 				t.Fatal("CompleteBlock should succeed")
 			}
 
-			if err := manager.CompletePiece(0); err != nil {
+			if err := manager.SaveCompletePiece(0); err != nil {
 				t.Fatal("CompletePiece should succeed")
 			}
 

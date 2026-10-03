@@ -233,7 +233,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
 			if err := p.pieceManager.SaveCompletePiece(int(block.Index)); err != nil {
 				p.pieceManager.ReDownloadPiece(int(block.Index))
-				log.Printf("piece %d rejected: %v", block.Index, err)
+				log.Printf("peer: %v piece %d rejected: %v", p.Addr, block.Index, err)
 			}
 		}
 
@@ -295,11 +295,11 @@ func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
 	blockCompleted := int(p.stat.GetRequestsCompleted())
 	completedInWC := blockCompleted - lastCompletedBlock
 
-	if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
-		log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
-			p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
-			completedInWC-p.maxBlockRequest)
-	}
+	// if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
+	// 	log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
+	// 		p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
+	// 		completedInWC-p.maxBlockRequest)
+	// }
 	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
 
 	return blockCompleted

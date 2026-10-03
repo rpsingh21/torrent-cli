@@ -65,6 +65,7 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 func (m *Manager) GetStat() (int, int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.completed, m.inprogress
 }
 
@@ -115,8 +116,7 @@ func (m *Manager) ReleaseBlock(peerId string, pieceIndex, offset int) bool {
 		return false
 	}
 
-	piece := m.Pieces[pieceIndex]
-	piece.resetBlock(peerId, offset)
+	m.Pieces[pieceIndex].resetBlock(peerId, offset)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -125,26 +125,11 @@ func (m *Manager) ReleaseBlock(peerId string, pieceIndex, offset int) bool {
 	return true
 }
 
-// RemovePeer releases all blocks owned by a disconnected peer.
-// Todo: Will implement via queue.
 func (m *Manager) RemovePeer(peerId string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.removeWithoutLock(peerId)
-	for _, p := range m.Pieces {
-		for i := range p.Blocks {
-			b := &p.Blocks[i]
-			if b.Requested && b.RequestedBy == peerId {
-				log.Printf("==================invalid block found for peer %v, (%v | %v)", b.RequestedBy, p.Index, b.Offset)
-				b.Requested = false
-				b.RequestedBy = ""
-				b.startedAt = time.Time{}
-
-				m.ReleaseQue[b.Piece] = 0
-			}
-		}
-	}
+	m.removePeerWithoutLock(peerId)
 }
 
 func (m *Manager) CompleteBlock(peerId string, pieceIndex, offset int, data []byte) bool {
@@ -202,27 +187,13 @@ func (m *Manager) Completed() bool {
 	return m.Have.AllSet()
 }
 
-func (m *Manager) resetPieceLocked(p *Piece) {
-	p.Verifying = false
-	for i := range p.Blocks {
-		b := &p.Blocks[i]
-		b.Requested = false
-		b.RequestedBy = ""
-		b.Completed = false
-		b.startedAt = time.Time{}
-		b.Data = nil
-	}
-	m.Have.ClearIndex(p.Index)
-}
-
 func (m *Manager) ReDownloadPiece(index int) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if index < 0 || index >= len(m.Pieces) {
 		return false
 	}
 
-	m.resetPieceLocked(m.Pieces[index])
+	m.Pieces[index].resetAllBlock()
+
+	m.Have.ClearIndex(index)
 	return true
 }

@@ -17,11 +17,11 @@ func (m *Manager) AddPeer(peerID string, peerpieces *bitfield.Bitfield) {
 	defer m.mu.Unlock()
 
 	if peerpieces == nil {
-		m.removeWithoutLock(peerID)
+		m.removePeerWithoutLock(peerID)
 		return
 	}
 
-	m.removeWithoutLock(peerID)
+	m.removePeerWithoutLock(peerID)
 	m.PeerPieces[peerID] = peerpieces
 
 	for i := range m.Availability {
@@ -42,7 +42,7 @@ func (m *Manager) PeerHasPiece(peerID string, index int) {
 	m.Availability[index]++
 }
 
-func (m *Manager) removeWithoutLock(peerID string) {
+func (m *Manager) removePeerWithoutLock(peerID string) {
 	peerpieces, ok := m.PeerPieces[peerID]
 	if !ok {
 		return

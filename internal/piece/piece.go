@@ -45,15 +45,17 @@ func (p *Piece) blockAt(offset int) *Block {
 }
 
 func (p *Piece) Completed() bool {
+	// for i := range p.Blocks {
+	// 	if !p.Blocks[i].Completed {
+	// 		return false
+	// 	}
+	// }
+	// return true
 
-	for i := range p.Blocks {
-		if !p.Blocks[i].Completed {
-			return false
-		}
-	}
-	return true
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	// return p.toatalBlock == p.downloadedBlock
+	return p.toatalBlock == p.downloadedBlock
 }
 
 func (p *Piece) Verify() bool {
@@ -125,8 +127,22 @@ func (p *Piece) resetBlock(peerId string, offset int) bool {
 	if block == nil || !block.Requested || block.RequestedBy != peerId || block.Completed {
 		return false
 	}
+
+	if block.Completed {
+		p.downloadedBlock--
+	}
 	block.resetDownload()
 
-	p.downloadedBlock--
 	return true
+}
+
+func (p *Piece) resetAllBlock() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, block := range p.Blocks {
+		block.resetDownload()
+	}
+
+	p.downloadedBlock = 0
 }
