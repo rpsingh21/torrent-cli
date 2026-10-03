@@ -17,11 +17,11 @@ func (m *Manager) AddPeer(peerID string, peerpieces *bitfield.Bitfield) {
 	defer m.mu.Unlock()
 
 	if peerpieces == nil {
-		m.removeWithoutLock(peerID)
+		m.removePeerWithoutLock(peerID)
 		return
 	}
 
-	m.removeWithoutLock(peerID)
+	m.removePeerWithoutLock(peerID)
 	m.PeerPieces[peerID] = peerpieces
 
 	for i := range m.Availability {
@@ -42,7 +42,7 @@ func (m *Manager) PeerHasPiece(peerID string, index int) {
 	m.Availability[index]++
 }
 
-func (m *Manager) removeWithoutLock(peerID string) {
+func (m *Manager) removePeerWithoutLock(peerID string) {
 	peerpieces, ok := m.PeerPieces[peerID]
 	if !ok {
 		return
@@ -77,18 +77,6 @@ func (m *Manager) sequential(peerID string) int {
 	if peerpieces == nil || len(m.Availability) == 0 {
 		return -1
 	}
-
-	// Todo: Refactor
-	// pieceId, ok := m.releaseQue.Peek()
-	// if ok {
-	// 	if m.canPick(peerpieces, pieceId) {
-	// 		m.releaseQue.Pop()
-	// 		m.next = pieceId
-	// 		return pieceId
-	// 	} else if m.Pieces[pieceId].NextMissingBlock() == nil {
-	// 		m.releaseQue.Pop()
-	// 	}
-	// }
 
 	for k := range m.ReleaseQue {
 		if m.Pieces[k].NextMissingBlock() == nil {
@@ -138,5 +126,5 @@ func (m *Manager) endGame(peerID string) int {
 
 // Todo Review m.Pieces[index].NextMissingBlock() != nil
 func (m *Manager) canPick(peerpieces *bitfield.Bitfield, index int) bool {
-	return peerpieces.Have(index) && !m.Have.Have(index) && !m.Pieces[index].Verifying && m.Pieces[index].NextMissingBlock() != nil
+	return peerpieces.Have(index) && !m.Have.Have(index) && m.Pieces[index].NextMissingBlock() != nil
 }

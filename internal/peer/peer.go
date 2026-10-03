@@ -224,7 +224,6 @@ func (p *Peer) handleMessage(message *Message) error {
 			return nil
 		}
 
-		// Todo: ambiguous imp
 		if !p.pieceManager.CompleteBlock(p.Addr, int(block.Index), int(block.Begin), block.Data) {
 			return fmt.Errorf("invalid piece block %d/%d from %s", block.Index, block.Begin, p.Addr)
 		}
@@ -232,9 +231,9 @@ func (p *Peer) handleMessage(message *Message) error {
 		p.stat.IncRequestsCompleted()
 
 		if p.pieceManager.IsPieceReady(int(block.Index)) {
-			if err := p.pieceManager.CompletePiece(int(block.Index)); err != nil {
+			if err := p.pieceManager.SaveCompletePiece(int(block.Index)); err != nil {
 				p.pieceManager.ReDownloadPiece(int(block.Index))
-				log.Printf("piece %d rejected: %v", block.Index, err)
+				log.Printf("peer: %v piece %d rejected: %v", p.Addr, block.Index, err)
 			}
 		}
 
@@ -260,7 +259,7 @@ func (p *Peer) pendingCount() int {
 
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
-	log.Printf("peer: %v releaseAllPending_called (%v)", p.Addr, len(p.pending))
+	log.Printf("peer %v releaseAllPending_called (%v)", p.Addr, len(p.pending))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)
@@ -296,11 +295,11 @@ func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
 	blockCompleted := int(p.stat.GetRequestsCompleted())
 	completedInWC := blockCompleted - lastCompletedBlock
 
-	if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
-		log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
-			p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
-			completedInWC-p.maxBlockRequest)
-	}
+	// if p.maxBlockRequest != min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)) {
+	// 	log.Printf("peer %v Change Request window previous: %v Now: %v, Total change %v",
+	// 		p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
+	// 		completedInWC-p.maxBlockRequest)
+	// }
 	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
 
 	return blockCompleted

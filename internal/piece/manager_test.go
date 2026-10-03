@@ -74,7 +74,7 @@ func TestBuildBlocks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildBlocks(tt.pieceID, tt.pieceSize)
+			got, _ := buildBlocks(tt.pieceID, tt.pieceSize)
 
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d blocks, want %d", len(got), len(tt.want))
@@ -184,7 +184,7 @@ func TestManagerCompleteBlock(t *testing.T) {
 				nil,
 			)
 
-			data := bytes.Repeat([]byte("A"), REQUEST_SIZE)
+			data := bytes.Repeat([]byte("A"), BLOCK_SIZE)
 			hash := sha1.Sum(data)
 			manager.Pieces[0].HashV1 = hash
 
@@ -249,11 +249,11 @@ func TestManagerCompletePiece(t *testing.T) {
 				t.Fatal("CompleteBlock should succeed")
 			}
 
-			if err := manager.CompletePiece(0); err != nil {
+			if err := manager.SaveCompletePiece(0); err != nil {
 				t.Fatal("CompletePiece should succeed")
 			}
 
-			if !manager.IsComplete(0) {
+			if !manager.IsPieceComplete(0) {
 				t.Fatal("piece should be complete")
 			}
 

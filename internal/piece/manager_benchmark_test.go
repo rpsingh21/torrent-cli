@@ -101,10 +101,11 @@ func BenchmarkManager10Cent(b *testing.B) {
 }
 
 func BenchmarkPieceNextMissingBlock(b *testing.B) {
+	blocks, _ := buildBlocks(0, 128*1024)
 	piece := &Piece{
 		Index:  0,
 		Length: 128 * 1024,
-		Blocks: buildBlocks(0, 128*1024),
+		Blocks: blocks,
 	}
 
 	b.ReportAllocs()
