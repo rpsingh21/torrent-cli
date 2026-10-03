@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/storage"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
@@ -41,7 +40,6 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 
 		pieces[i] = &Piece{
 			Index:           i,
-			Offset:          i * int(meta.PieceLength),
 			Length:          pieceSize,
 			HashV1:          hash,
 			Blocks:          blocks,
@@ -105,10 +103,7 @@ func (m *Manager) nextNewBlock(peerId string) *Block {
 		return nil
 	}
 
-	block.Requested = true
 	block.RequestedBy = peerId
-	block.startedAt = time.Now()
-
 	return block
 }
 
