@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	REQUEST_SIZE  = 16 * 1024
-	BLOCK_TIMEOUT = 10 * time.Second
+	REQUEST_SIZE = 16 * 1024
 )
 
 type Manager struct {
@@ -133,6 +132,7 @@ func (m *Manager) ReleaseBlock(peerID string, pieceIndex, offset int) bool {
 func (m *Manager) RemovePeer(peerID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.removeWithoutLock(peerID)
 	for _, p := range m.Pieces {
 		for i := range p.Blocks {
@@ -188,6 +188,7 @@ func (m *Manager) IsPieceReady(index int) bool {
 
 // CompletePiece verifies a fully received piece and persists it. The manager
 // mutex is deliberately not held while storage I/O occurs.
+// Todo: Flow is ambigius also problem in peer
 func (m *Manager) CompletePiece(index int) error {
 	m.mu.Lock()
 	if index < 0 || index >= len(m.Pieces) {
