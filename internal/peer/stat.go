@@ -5,7 +5,7 @@ import (
 )
 
 type Stat struct {
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	DownloadRate int64
 	UploadRate   int64
@@ -70,8 +70,8 @@ func (s *Stat) IncTimeouts() {
 }
 
 func (s *Stat) Snapshot() StatSnapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	return StatSnapshot{
 		DownloadRate: s.DownloadRate,

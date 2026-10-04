@@ -36,6 +36,23 @@ func (p *Piece) NextMissingBlock() *Block {
 	return nil
 }
 
+func (p *Piece) reserveBlock(peerId string) *Block {
+	if p.Blocks == nil {
+		p.Blocks = buildBlocks(p.Index, p.Length)
+	}
+
+	for i := range p.Blocks {
+		if p.Blocks[i].Completed || p.Blocks[i].RequestedBy != "" {
+			continue
+		}
+
+		p.Blocks[i].RequestedBy = peerId
+		return &p.Blocks[i]
+	}
+
+	return nil
+}
+
 func buildBlocks(pieceId, pieceSize int) []Block {
 	if pieceSize <= 0 {
 		return nil
@@ -81,6 +98,7 @@ func (p *Piece) completeBlock(peerId string, offset int, data []byte) bool {
 		p.buffer = make([]byte, 0, p.Length)
 	}
 
+	// extend the slice length
 	end := offset + len(data)
 	if end > len(p.buffer) {
 		p.buffer = p.buffer[:end]
@@ -125,11 +143,7 @@ func (p *Piece) resetBlock(peerId string, offset int) bool {
 		return false
 	}
 
-	if block.Completed {
-		p.downloadedBlock--
-	}
 	block.resetDownload()
-
 	return true
 }
 

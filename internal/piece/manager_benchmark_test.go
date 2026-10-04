@@ -111,13 +111,13 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		block := piece.NextMissingBlock()
+		block := piece.reserveBlock("test")
 		if block == nil {
 			for i := range piece.Blocks {
 				piece.Blocks[i].RequestedBy = ""
 				piece.Blocks[i].Completed = false
 			}
-			block = piece.NextMissingBlock()
+			block = piece.reserveBlock("test")
 		}
 
 		if block == nil {

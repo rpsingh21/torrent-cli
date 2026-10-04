@@ -75,17 +75,12 @@ func (m *Manager) NextBlock(peerId string) *Block {
 
 func (m *Manager) nextNewBlock(peerId string) *Block {
 	pieceIndex := m.Pick(peerId)
+
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return nil
 	}
 
-	block := m.Pieces[pieceIndex].NextMissingBlock()
-	if block == nil {
-		return nil
-	}
-
-	block.RequestedBy = peerId
-	return block
+	return m.Pieces[pieceIndex].reserveBlock(peerId)
 }
 
 func (m *Manager) ReleaseBlock(peerId string, pieceIndex, offset int) bool {
@@ -174,6 +169,5 @@ func (m *Manager) ReDownloadPiece(index int) bool {
 	}
 
 	m.Pieces[index].resetAllBlock()
-
 	return true
 }
