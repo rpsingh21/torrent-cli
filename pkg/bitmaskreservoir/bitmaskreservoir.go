@@ -93,3 +93,7 @@ func (b *BitmaskReservoir) IsReserved(index int) bool {
 
 	return (b.bitBlocks[blockId] & (uint64(1) << bit)) != 0
 }
+
+func (b *BitmaskReservoir) CanReserve() bool {
+	return b.cursor < len(b.bitBlocks)
+}

@@ -79,7 +79,7 @@ func (m *Manager) sequential(peerID string) int {
 	}
 
 	for k := range m.ReleaseQue {
-		if m.Pieces[k].NextMissingBlock() == nil {
+		if !m.Pieces[k].NextMissingBlock() {
 			delete(m.ReleaseQue, k)
 		} else if m.canPick(peerpieces, k) {
 			// m.next = min(m.next, k)
@@ -126,5 +126,5 @@ func (m *Manager) endGame(peerID string) int {
 
 // Todo Review m.Pieces[index].NextMissingBlock() != nil
 func (m *Manager) canPick(peerpieces *bitfield.Bitfield, index int) bool {
-	return peerpieces.Have(index) && !m.Have.Have(index) && m.Pieces[index].NextMissingBlock() != nil
+	return peerpieces.Have(index) && !m.Have.Have(index) && m.Pieces[index].NextMissingBlock()
 }

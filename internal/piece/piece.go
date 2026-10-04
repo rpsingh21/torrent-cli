@@ -21,22 +21,22 @@ type Piece struct {
 	downloadedBlock int
 }
 
-func (p *Piece) NextMissingBlock() *Block {
+func (p *Piece) NextMissingBlock() bool {
 	if p.Blocks == nil {
 		p.Blocks = buildBlocks(p.Index, p.Length)
 		p.blockReservoir = bitmaskreservoir.NewBitmaskReservoir(len(p.Blocks))
 	}
 
-	for i := range p.Blocks {
-		block := &p.Blocks[i]
-		if block.Completed || block.RequestedBy != "" {
-			continue
-		}
+	// for i := range p.Blocks {
+	// 	block := &p.Blocks[i]
+	// 	if block.Completed || block.RequestedBy != "" {
+	// 		continue
+	// 	}
 
-		return block
-	}
+	// 	return block
+	// }
 
-	return nil
+	return p.blockReservoir.CanReserve()
 }
 
 func (p *Piece) reserveBlock(peerId string) *Block {
