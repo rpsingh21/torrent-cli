@@ -18,7 +18,7 @@ type Manager struct {
 	Metainfo     *torrent.MetaInfo
 	Have         *bitfield.Bitfield
 	Pieces       []*Piece
-	Availability []uint32
+	Availability []uint16
 	PeerPieces   map[string]*bitfield.Bitfield
 	Strategy     PickStrategy
 	next         int
@@ -49,7 +49,7 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 		Metainfo:     meta,
 		Have:         bitfield.NewBitfield(len(pieces)),
 		Pieces:       pieces,
-		Availability: make([]uint32, len(pieces)),
+		Availability: make([]uint16, len(pieces)),
 		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Strategy:     strategy,
 		storage:      store,

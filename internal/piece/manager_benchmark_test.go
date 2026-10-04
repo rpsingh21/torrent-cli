@@ -6,6 +6,7 @@ import (
 
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
+	"github.com/rpsingh21/torrent-cli/pkg/bitmaskreservoir"
 )
 
 func benchmarkMetaInfo(pieceCount int) *torrent.MetaInfo {
@@ -125,5 +126,36 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 		}
 
 		block.RequestedBy = ""
+	}
+}
+
+func BenchmarkPieceReserveBlock(b *testing.B) {
+	b.ReportAllocs()
+
+	blockSize := 16 * 1024
+	for i := range 11 {
+		blockCount := 1 << i
+		benchName := fmt.Sprintf("BC_%v", blockCount)
+		b.Run(benchName, func(b *testing.B) {
+
+			pieceSize := blockCount * blockSize
+			blocks := buildBlocks(0, pieceSize)
+			piece := &Piece{
+				Index:          0,
+				Length:         pieceSize,
+				Blocks:         blocks,
+				blockReservoir: bitmaskreservoir.NewBitmaskReservoir(blockCount),
+			}
+
+			for b.Loop() {
+				for range blockCount {
+					piece.reserveBlock("test_peer_id")
+				}
+
+				for i := range piece.Blocks {
+					piece.Blocks[i].resetDownload()
+				}
+			}
+		})
 	}
 }

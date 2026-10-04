@@ -109,7 +109,7 @@ func (m *Manager) rarestFirst(peerID string) int {
 	if peerpieces == nil || len(m.Availability) == 0 {
 		return -1
 	}
-	best, bestAvailability := -1, ^uint32(0)
+	best, bestAvailability := -1, ^uint16(0)
 	for i, availability := range m.Availability {
 		if m.canPick(peerpieces, i) && availability < bestAvailability {
 			best, bestAvailability = i, availability

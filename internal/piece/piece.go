@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/storage"
+	"github.com/rpsingh21/torrent-cli/pkg/bitmaskreservoir"
 )
 
 type Piece struct {
@@ -15,6 +16,7 @@ type Piece struct {
 	Blocks []Block
 
 	buffer          []byte
+	blockReservoir  *bitmaskreservoir.BitmaskReservoir
 	mu              sync.Mutex
 	downloadedBlock int
 }
@@ -22,6 +24,7 @@ type Piece struct {
 func (p *Piece) NextMissingBlock() *Block {
 	if p.Blocks == nil {
 		p.Blocks = buildBlocks(p.Index, p.Length)
+		p.blockReservoir = bitmaskreservoir.NewBitmaskReservoir(len(p.Blocks))
 	}
 
 	for i := range p.Blocks {
@@ -39,15 +42,21 @@ func (p *Piece) NextMissingBlock() *Block {
 func (p *Piece) reserveBlock(peerId string) *Block {
 	if p.Blocks == nil {
 		p.Blocks = buildBlocks(p.Index, p.Length)
+		p.blockReservoir = bitmaskreservoir.NewBitmaskReservoir(len(p.Blocks))
 	}
 
-	for i := range p.Blocks {
-		if p.Blocks[i].Completed || p.Blocks[i].RequestedBy != "" {
-			continue
-		}
+	// for i := range p.Blocks {
+	// 	if p.Blocks[i].Completed || p.Blocks[i].RequestedBy != "" {
+	// 		continue
+	// 	}
 
-		p.Blocks[i].RequestedBy = peerId
-		return &p.Blocks[i]
+	// 	p.Blocks[i].RequestedBy = peerId
+	// 	return &p.Blocks[i]
+	// }
+
+	if id, err := p.blockReservoir.Reserve(); err == nil {
+		p.Blocks[id].RequestedBy = peerId
+		return &p.Blocks[id]
 	}
 
 	return nil
@@ -130,6 +139,7 @@ func (p *Piece) saveCompletePiece(store storage.Storage) error {
 
 	p.buffer = nil
 	p.Blocks = nil
+	p.blockReservoir = nil
 
 	return nil
 }
@@ -144,6 +154,7 @@ func (p *Piece) resetBlock(peerId string, offset int) bool {
 	}
 
 	block.resetDownload()
+	p.blockReservoir.Unreserve(offset / BLOCK_SIZE)
 	return true
 }
 
@@ -152,6 +163,7 @@ func (p *Piece) resetAllBlock() {
 	defer p.mu.Unlock()
 
 	for _, block := range p.Blocks {
+		p.blockReservoir.Unreserve(block.Offset / BLOCK_SIZE)
 		block.resetDownload()
 	}
 
