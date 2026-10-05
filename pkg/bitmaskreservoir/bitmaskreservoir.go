@@ -72,7 +72,7 @@ func (b *BitmaskReservoir) Unreserve(index int) error {
 	}
 
 	wordId := index >> 6
-	bit := uint(index % 64)
+	bit := uint(index & 63) // or index % 64
 	bitMask := uint64(1) << bit
 
 	// Clear the bit (AND NOT) to make it 0(if 1)
@@ -91,7 +91,7 @@ func (b *BitmaskReservoir) IsReserved(index int) bool {
 	}
 
 	wordId := index >> 6
-	bit := uint(index % 64)
+	bit := uint(index & 63)
 
 	return (b.words[wordId] & (uint64(1) << bit)) != 0
 }
