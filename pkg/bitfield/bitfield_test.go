@@ -16,9 +16,9 @@ func TestNewBitfield(t *testing.T) {
 		{name: "negative size", size: -1, expectedWords: 0, expectErr: ErrSizeCanNotNegative},
 		{name: "zero size", size: 0, expectedWords: 0, expectErr: nil},
 		{name: "single bit", size: 1, expectedWords: 1, expectErr: nil},
-		{name: "boundary 63 bits", size: 63, expectedWords: 1, expectErr: nil},
-		{name: "exact 64 bits", size: 64, expectedWords: 1, expectErr: nil},
-		{name: "boundary 65 bits", size: 65, expectedWords: 2, expectErr: nil},
+		{name: "boundary 63 bits", size: 63, expectedWords: 8, expectErr: nil},
+		{name: "exact 64 bits", size: 64, expectedWords: 8, expectErr: nil},
+		{name: "boundary 65 bits", size: 65, expectedWords: 9, expectErr: nil},
 	}
 
 	for _, tc := range tests {
@@ -130,20 +130,20 @@ func TestNewBitfieldFromBytes(t *testing.T) {
 }
 
 func TestNewBitfieldFromBytes_ValueIntegrity(t *testing.T) {
-	// byte 0 = 0b00000101 (bits 0, 2)
-	// byte 1 = 0b00000010 (bit 9 -> index 1 of byte 1)
-	// byte 8 = 0b00000001 (bit 64 -> index 0 of byte 8, crosses into word 1)
+	// byte 0 = 0b00000101 (bits 5, 7)
+	// byte 1 = 0b00000010 (bit 14 -> index 1 of byte 1)
+	// byte 8 = 0b10000000 (bit 64 -> index 0 of byte 8, crosses into word 1)
 	data := make([]byte, 9)
 	data[0] = 0b00000101
 	data[1] = 0b00000010
-	data[8] = 0b00000001
+	data[8] = 0b10000000
 
 	bf, err := NewBitfieldFromBytes(data, 65)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expectedSet := []int{0, 2, 9, 64}
+	expectedSet := []int{5, 7, 14, 64}
 	for _, idx := range expectedSet {
 		if !bf.Have(idx) {
 			t.Errorf("expected bit %d to be set", idx)
@@ -248,7 +248,7 @@ func TestAllSet(t *testing.T) {
 		bf.SetIndex(1)
 		bf.SetIndex(2)
 		// Manually tamper higher unused bits in the word
-		bf.words[0] |= (uint64(1) << 10)
+		bf.words[0] |= (uint8(1) << 7)
 
 		if !bf.AllSet() {
 			t.Error("AllSet should ignore bits beyond size in the last word")
@@ -287,7 +287,7 @@ func TestCount(t *testing.T) {
 		bf.SetIndex(0)
 		bf.SetIndex(4)
 		// Tamper an unused bit beyond size
-		bf.words[0] |= (uint64(1) << 30)
+		bf.words[0] |= uint8(1)
 
 		if count := bf.Count(); count != 2 {
 			t.Errorf("expected count to be 2 ignoring out-of-range bits, got %d", count)

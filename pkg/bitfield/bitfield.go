@@ -1,14 +1,13 @@
 package bitfield
 
 import (
-	"encoding/binary"
 	"errors"
 	"math/bits"
 )
 
 type Bitfield struct {
 	size  int
-	words []uint64
+	words []byte
 }
 
 var (
@@ -21,45 +20,24 @@ func NewBitfield(size int) (*Bitfield, error) {
 		return nil, ErrSizeCanNotNegative
 	}
 
-	wordCount := int((uint(size) + 63) >> 6)
 	return &Bitfield{
+		words: make([]byte, (size+7)>>3),
 		size:  size,
-		words: make([]uint64, wordCount),
 	}, nil
 }
 
-func NewBitfieldFromBytes(data []byte, size int) (*Bitfield, error) {
+func NewBitfieldFromBytes(words []byte, size int) (*Bitfield, error) {
 	if size < 0 {
 		return nil, ErrSizeCanNotNegative
 	}
 
-	expectedBytes := int((uint(size) + 7) >> 3)
-	if len(data) != expectedBytes {
+	if (size+7)>>3 != len(words) {
 		return nil, ErrInvalidByteLength
 	}
 
-	wordCount := int((uint(size) + 63) >> 6)
-	words := make([]uint64, wordCount)
-
-	// Copy full 8-byte chunks (len(data) >> 3)
-	fullWords := len(data) >> 3
-	for i := range fullWords {
-		words[i] = binary.LittleEndian.Uint64(data[i<<3 : (i+1)<<3])
-	}
-
-	// Handle remaining trailing bytes (1 to 7 bytes)
-	if rem := len(data) & 7; rem > 0 {
-		var lastWord uint64
-		offset := fullWords << 3
-		for i := range rem {
-			lastWord |= uint64(data[offset+i]) << (i << 3)
-		}
-		words[fullWords] = lastWord
-	}
-
 	return &Bitfield{
-		size:  size,
 		words: words,
+		size:  size,
 	}, nil
 }
 
@@ -72,10 +50,7 @@ func (b *Bitfield) Have(index int) bool {
 		return false
 	}
 
-	wordId := index >> 6
-	bitMask := uint64(1) << (index & 63) // equal index%64
-
-	return b.words[wordId]&bitMask != 0
+	return b.words[index>>3]&(1<<uint(7-(index&7))) != 0
 }
 
 func (b *Bitfield) SetIndex(index int) bool {
@@ -83,10 +58,7 @@ func (b *Bitfield) SetIndex(index int) bool {
 		return false
 	}
 
-	wordId := index >> 6
-	bitMask := uint64(1) << (index & 63)
-
-	b.words[wordId] |= bitMask
+	b.words[index>>3] |= byte(1 << (7 - (index & 7)))
 	return true
 }
 
@@ -95,10 +67,7 @@ func (b *Bitfield) ClearIndex(index int) bool {
 		return false
 	}
 
-	wordId := index >> 6
-	bitMask := uint64(1) << (index & 63)
-
-	b.words[wordId] &^= bitMask
+	b.words[index>>3] &^= 1 << uint(7-(index&7))
 	return true
 }
 
@@ -107,34 +76,34 @@ func (b *Bitfield) AllSet() bool {
 		return true
 	}
 
-	fullWords := b.size >> 6
+	fullBytes := b.size >> 3
 
-	for _, v := range b.words[:fullWords] {
-		if v != ^uint64(0) {
+	for _, v := range b.words[:fullBytes] {
+		if v != ^uint8(0) {
 			return false
 		}
 	}
 
-	remaining := b.size & 63
+	remaining := b.size & 7
 	if remaining == 0 {
 		return true
 	}
 
-	mask := (uint64(1) << remaining) - 1
-	return (b.words[fullWords] & mask) == mask
+	mask := byte(^uint8(0) << uint(8-remaining))
+	return b.words[fullBytes]&mask == mask
 }
 
 func (b *Bitfield) Count() int {
 	var total int
-	fullWords := b.size >> 6
+	fullWords := b.size >> 3
 
 	for _, v := range b.words[:fullWords] {
-		total += bits.OnesCount64(v)
+		total += bits.OnesCount8(v)
 	}
 
-	if remaining := b.size & 63; remaining > 0 {
-		mask := (uint64(1) << remaining) - 1
-		total += bits.OnesCount64(b.words[fullWords] & mask)
+	if remaining := b.size & 7; remaining > 0 {
+		mask := (uint8(1) << remaining) - 1
+		total += bits.OnesCount8(b.words[fullWords] & mask)
 	}
 
 	return total
