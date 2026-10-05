@@ -27,15 +27,6 @@ func (p *Piece) NextMissingBlock() bool {
 		p.blockReservoir = bitmaskreservoir.NewBitmaskReservoir(len(p.Blocks))
 	}
 
-	// for i := range p.Blocks {
-	// 	block := &p.Blocks[i]
-	// 	if block.Completed || block.RequestedBy != "" {
-	// 		continue
-	// 	}
-
-	// 	return block
-	// }
-
 	return p.blockReservoir.CanReserve()
 }
 
@@ -44,15 +35,6 @@ func (p *Piece) reserveBlock(peerId string) *Block {
 		p.Blocks = buildBlocks(p.Index, p.Length)
 		p.blockReservoir = bitmaskreservoir.NewBitmaskReservoir(len(p.Blocks))
 	}
-
-	// for i := range p.Blocks {
-	// 	if p.Blocks[i].Completed || p.Blocks[i].RequestedBy != "" {
-	// 		continue
-	// 	}
-
-	// 	p.Blocks[i].RequestedBy = peerId
-	// 	return &p.Blocks[i]
-	// }
 
 	if id, err := p.blockReservoir.Reserve(); err == nil {
 		p.Blocks[id].RequestedBy = peerId
