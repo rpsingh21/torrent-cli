@@ -45,6 +45,8 @@ type Peer struct {
 
 	bitfield *bitfield.Bitfield
 	stat     *Stat
+
+	fibrillation int64
 }
 
 func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
@@ -65,7 +67,8 @@ func (p *Peer) Start(pctx context.Context) error {
 	}
 
 	// init while create
-	p.maxBlockRequest = 16
+	p.maxBlockRequest = MIN_REQUESTS_PER_PEER
+	p.fibrillation = -1
 
 	if p.pending == nil {
 		p.pending = make(map[requestKey]time.Time)
@@ -138,7 +141,6 @@ func (p *Peer) fillRequests() error {
 		}
 		key := requestKey{piece: block.Piece, offset: block.Offset}
 
-		// ToDo: It can create inline?
 		message := &Message{
 			ID:      MsgRequest,
 			Payload: (&Request{Index: uint32(block.Piece), Begin: uint32(block.Offset), Length: uint32(block.Length)}).Encode(),
@@ -163,6 +165,11 @@ func (p *Peer) handleMessage(message *Message) error {
 	switch message.ID {
 	case MsgChoke:
 		p.Choked = true
+		snapshot := p.stat.Snapshot()
+		if p.fibrillation != -1 && snapshot.RequestsCompleted-p.fibrillation == 0 {
+			return fmt.Errorf("bad peer %v, frequently fibrillation.", p.Addr)
+		}
+		p.fibrillation = snapshot.RequestsCompleted
 
 	case MsgUnchoke:
 		p.Choked = false
@@ -172,7 +179,12 @@ func (p *Peer) handleMessage(message *Message) error {
 		if len(message.Payload) != wantBytes {
 			return fmt.Errorf("invalid bitfield length %d, want %d %+v", len(message.Payload), wantBytes, p.pieceManager.Metainfo)
 		}
-		bf := bitfield.NewBitfieldFromBytes(message.Payload, p.pieceManager.Metainfo.TotalPices)
+
+		bf, err := bitfield.NewBitfieldFromBytes(message.Payload, p.pieceManager.Metainfo.TotalPices)
+		if err != nil {
+			return err
+		}
+
 		if bf == nil {
 			return fmt.Errorf("invalid bitfield from %s", p.Addr)
 		}
@@ -193,14 +205,14 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 
 	case MsgHaveAll:
-		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
+		p.bitfield, _ = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		for i := 0; i < p.pieceManager.Metainfo.TotalPices; i++ {
 			p.bitfield.SetIndex(i)
 		}
 		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgHaveNone:
-		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
+		p.bitfield, _ = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgPiece:
@@ -300,7 +312,7 @@ func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
 	// 		p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
 	// 		completedInWC-p.maxBlockRequest)
 	// }
-	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
+	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(MIN_REQUESTS_PER_PEER, completedInWC))
 
 	return blockCompleted
 }

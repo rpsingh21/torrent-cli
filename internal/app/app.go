@@ -15,6 +15,8 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
+const MAX_PIECE_SIZE = 256 << 20
+
 type App struct {
 	logger    *log.Logger
 	metaInfo  *torrent.MetaInfo
@@ -68,6 +70,9 @@ func NewAppFromMagnetLink(ctx context.Context, url, outputDir string) (*App, err
 }
 
 func (a *App) Download(ctx context.Context) error {
+	fmt.Printf("download details == Piece Size %v | Pieces %v | Blocks per Piece %v\n\n",
+		a.metaInfo.PieceLength, a.metaInfo.TotalSize/a.metaInfo.PieceLength,
+		a.metaInfo.PieceLength/(16*1024))
 	store, err := storage.NewFileStorage(a.metaInfo, a.outputDir)
 	if err != nil {
 		return err
@@ -91,13 +96,14 @@ func (a *App) Download(ctx context.Context) error {
 	go func() { done <- peerManager.Run(runCtx) }()
 
 	completed := false
-	completionCheck := time.NewTicker(250 * time.Millisecond)
+	completionCheck := time.NewTicker(2 * time.Second)
 	defer completionCheck.Stop()
 
 	for finished := 0; finished < 2; {
 		select {
 		case err := <-done:
 			finished++
+			fmt.Println("")
 			if err != nil && !errors.Is(err, context.Canceled) && !completed {
 				cancel()
 				peerManager.Close()

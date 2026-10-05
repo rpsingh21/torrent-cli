@@ -6,6 +6,7 @@ import (
 
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 	"github.com/rpsingh21/torrent-cli/pkg/bitfield"
+	"github.com/rpsingh21/torrent-cli/pkg/bitmaskreservoir"
 )
 
 func benchmarkMetaInfo(pieceCount int) *torrent.MetaInfo {
@@ -20,7 +21,7 @@ func benchmarkMetaInfo(pieceCount int) *torrent.MetaInfo {
 }
 
 func peerWith10CentBits(pieceCount int) *bitfield.Bitfield {
-	peerBf := bitfield.NewBitfield(pieceCount)
+	peerBf, _ := bitfield.NewBitfield(pieceCount)
 	peerBf.SetIndex(0)
 	for i := 9; i < pieceCount; i += 10 {
 		peerBf.SetIndex(i)
@@ -41,7 +42,7 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 					nil,
 				)
 
-				bf := bitfield.NewBitfield(pieceCount)
+				bf, _ := bitfield.NewBitfield(pieceCount)
 				bf.SetIndex(pieceCount - 1)
 				manager.AddPeer("peer", bf)
 
@@ -111,13 +112,13 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		block := piece.NextMissingBlock()
+		block := piece.reserveBlock("test")
 		if block == nil {
 			for i := range piece.Blocks {
 				piece.Blocks[i].RequestedBy = ""
 				piece.Blocks[i].Completed = false
 			}
-			block = piece.NextMissingBlock()
+			block = piece.reserveBlock("test")
 		}
 
 		if block == nil {
@@ -125,5 +126,36 @@ func BenchmarkPieceNextMissingBlock(b *testing.B) {
 		}
 
 		block.RequestedBy = ""
+	}
+}
+
+func BenchmarkPieceReserveBlock(b *testing.B) {
+	b.ReportAllocs()
+
+	blockSize := 16 * 1024
+	for i := range 11 {
+		blockCount := 1 << i
+		benchName := fmt.Sprintf("BC_%v", blockCount)
+		b.Run(benchName, func(b *testing.B) {
+
+			pieceSize := blockCount * blockSize
+			blocks := buildBlocks(0, pieceSize)
+			piece := &Piece{
+				Index:          0,
+				Length:         pieceSize,
+				Blocks:         blocks,
+				blockReservoir: bitmaskreservoir.NewBitmaskReservoir(blockCount),
+			}
+
+			for b.Loop() {
+				for range blockCount {
+					piece.reserveBlock("test_peer_id")
+				}
+
+				for i := range piece.Blocks {
+					piece.Blocks[i].resetDownload()
+				}
+			}
+		})
 	}
 }

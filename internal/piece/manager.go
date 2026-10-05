@@ -18,7 +18,7 @@ type Manager struct {
 	Metainfo     *torrent.MetaInfo
 	Have         *bitfield.Bitfield
 	Pieces       []*Piece
-	Availability []uint32
+	Availability []uint16
 	PeerPieces   map[string]*bitfield.Bitfield
 	Strategy     PickStrategy
 	next         int
@@ -45,11 +45,16 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 		}
 	}
 
+	haveBitfield, err := bitfield.NewBitfield(len(pieces))
+	if err != nil {
+		panic(err)
+	}
+
 	return &Manager{
 		Metainfo:     meta,
-		Have:         bitfield.NewBitfield(len(pieces)),
+		Have:         haveBitfield,
 		Pieces:       pieces,
-		Availability: make([]uint32, len(pieces)),
+		Availability: make([]uint16, len(pieces)),
 		PeerPieces:   make(map[string]*bitfield.Bitfield),
 		Strategy:     strategy,
 		storage:      store,
@@ -75,17 +80,12 @@ func (m *Manager) NextBlock(peerId string) *Block {
 
 func (m *Manager) nextNewBlock(peerId string) *Block {
 	pieceIndex := m.Pick(peerId)
+
 	if pieceIndex < 0 || pieceIndex >= len(m.Pieces) {
 		return nil
 	}
 
-	block := m.Pieces[pieceIndex].NextMissingBlock()
-	if block == nil {
-		return nil
-	}
-
-	block.RequestedBy = peerId
-	return block
+	return m.Pieces[pieceIndex].reserveBlock(peerId)
 }
 
 func (m *Manager) ReleaseBlock(peerId string, pieceIndex, offset int) bool {
@@ -174,6 +174,5 @@ func (m *Manager) ReDownloadPiece(index int) bool {
 	}
 
 	m.Pieces[index].resetAllBlock()
-
 	return true
 }

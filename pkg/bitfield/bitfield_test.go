@@ -1,350 +1,296 @@
 package bitfield
 
 import (
-	"math/rand/v2"
+	"errors"
+	"math"
 	"testing"
 )
 
-func getSetBit(size int) map[int]any {
-	setIdx := make(map[int]any, 10000)
-	for range 10000 {
-		n := rand.IntN(size) // [0, 100000]
-		setIdx[n] = struct{}{}
-	}
-	return setIdx
-}
-
-func BenchmarkSetSingle(b *testing.B) {
-	bf := NewBitfield(100_000)
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		bf.SetIndex(50_000)
-	}
-}
-
-func BenchmarkHaveSingle(b *testing.B) {
-	bf := NewBitfield(100_000)
-	bf.SetIndex(50_000)
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		_ = bf.Have(50_000)
-	}
-}
-
-func BenchmarkBitField(b *testing.B) {
-	size := 1000_00
-	setBit := getSetBit(size)
-
-	b.ReportAllocs()
-	b.ReportMetric(float64(len(setBit)), "set_ops")
-
-	for b.Loop() {
-		bitfield := NewBitfield(size)
-		for i := range setBit {
-			bitfield.SetIndex(i)
-		}
-		for range 1000 {
-			n := rand.IntN(size)
-			have := bitfield.Have(n)
-			_, ok := setBit[n]
-
-			if have != ok {
-				b.Fatalf("Value in bitfiled: %v, in set %v", have, ok)
-			}
-		}
-	}
-
-}
-
-func BenchmarkBitfieldSet(b *testing.B) {
-	size := 100_000
-	bf := NewBitfield(size)
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		for i := range size {
-			bf.SetIndex(i)
-		}
-	}
-}
-
-func BenchmarkBitfieldHave(b *testing.B) {
-	size := 100_000
-	bf := NewBitfield(size)
-
-	for i := range size {
-		bf.SetIndex(i)
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		for i := range size {
-			_ = bf.Have(i)
-		}
-	}
-}
-
-func TestBitfieldAllSet(t *testing.T) {
+func TestNewBitfield(t *testing.T) {
 	tests := []struct {
-		name     string
-		size     int
-		set      []int
-		expected bool
+		name          string
+		size          int
+		expectedWords int
+		expectErr     error
 	}{
-		{
-			name:     "empty bitfield",
-			size:     0,
-			expected: true,
-		},
-		{
-			name:     "no bits set",
-			size:     8,
-			expected: false,
-		},
-		{
-			name:     "partially set",
-			size:     8,
-			set:      []int{0, 1, 2, 3},
-			expected: false,
-		},
-		{
-			name:     "all bits set",
-			size:     8,
-			set:      []int{0, 1, 2, 3, 4, 5, 6, 7},
-			expected: true,
-		},
-		{
-			name:     "multiple bytes all set",
-			size:     16,
-			set:      []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-			expected: true,
-		},
-		{
-			name:     "multiple bytes partially set",
-			size:     16,
-			set:      []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expected: false,
-		},
-		{
-			name:     "non byte aligned all set",
-			size:     10,
-			set:      []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-			expected: true,
-		},
-		{
-			name:     "non byte aligned partially set",
-			size:     10,
-			set:      []int{0, 1, 2, 3, 4, 5, 6, 7, 8},
-			expected: false,
-		},
-		{
-			name:     "single bit all set",
-			size:     1,
-			set:      []int{0},
-			expected: true,
-		},
-		{
-			name:     "single bit not set",
-			size:     1,
-			expected: false,
-		},
+		{name: "negative size", size: -1, expectedWords: 0, expectErr: ErrSizeCanNotNegative},
+		{name: "zero size", size: 0, expectedWords: 0, expectErr: nil},
+		{name: "single bit", size: 1, expectedWords: 1, expectErr: nil},
+		{name: "boundary 63 bits", size: 63, expectedWords: 1, expectErr: nil},
+		{name: "exact 64 bits", size: 64, expectedWords: 1, expectErr: nil},
+		{name: "boundary 65 bits", size: 65, expectedWords: 2, expectErr: nil},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bf := NewBitfield(tt.size)
-
-			for _, index := range tt.set {
-				bf.SetIndex(index)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bf, err := NewBitfield(tc.size)
+			if tc.expectErr != nil {
+				if !errors.Is(err, tc.expectErr) {
+					t.Fatalf("expected error %v, got %v", tc.expectErr, err)
+				}
+				return
 			}
-
-			if got := bf.AllSet(); got != tt.expected {
-				t.Errorf("AllSet() = %v, want %v", got, tt.expected)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if bf.Size() != tc.size {
+				t.Errorf("expected size %d, got %d", tc.size, bf.Size())
+			}
+			if len(bf.words) != tc.expectedWords {
+				t.Errorf("expected %d words, got %d", tc.expectedWords, len(bf.words))
 			}
 		})
-	}
-}
-
-func TestBitfieldSetAndHave(t *testing.T) {
-	bf := NewBitfield(10)
-
-	// Initially all bits should be unset.
-	for i := range 10 {
-		if bf.Have(i) {
-			t.Errorf("Have(%d) = true, want false", i)
-		}
-	}
-
-	// Set a few bits.
-	for _, index := range []int{0, 3, 7, 9} {
-		bf.SetIndex(index)
-	}
-
-	for i := range 10 {
-		want := i == 0 || i == 3 || i == 7 || i == 9
-		if got := bf.Have(i); got != want {
-			t.Errorf("Have(%d) = %v, want %v", i, got, want)
-		}
-	}
-}
-
-func TestBitfieldSetIndexBounds(t *testing.T) {
-	bf := NewBitfield(8)
-
-	bf.SetIndex(-1)
-	bf.SetIndex(8)
-
-	if bf.Have(-1) {
-		t.Error("Have(-1) = true, want false")
-	}
-
-	if bf.Have(8) {
-		t.Error("Have(8) = true, want false")
-	}
-}
-
-func TestBitfieldClearIndex(t *testing.T) {
-	bf := NewBitfield(10)
-
-	bf.SetIndex(0)
-	bf.SetIndex(3)
-	bf.SetIndex(9)
-	bf.ClearIndex(10) //Index out of range
-
-	if !bf.Have(0) || !bf.Have(3) || !bf.Have(9) {
-		t.Fatal("bits were not set")
-	}
-
-	bf.ClearIndex(3)
-
-	if bf.Have(3) {
-		t.Fatal("bit 3 should be cleared")
-	}
-
-	if !bf.Have(0) || !bf.Have(9) {
-		t.Fatal("clearing bit 3 affected another bit")
-	}
-}
-
-func BenchmarkHaveAllPieces(b *testing.B) {
-	const size = 100_000
-
-	bf := NewBitfield(size)
-
-	for i := range size {
-		bf.SetIndex(i)
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		for i := range size {
-			if !bf.Have(i) {
-				b.Fatal("unexpected missing piece")
-			}
-		}
 	}
 }
 
 func TestNewBitfieldFromBytes(t *testing.T) {
 	tests := []struct {
-		name string
-		bits []byte
-		size int
-		want *Bitfield
+		name      string
+		data      []byte
+		size      int
+		expectErr error
 	}{
 		{
-			name: "empty bitfield",
-			bits: []byte{},
-			size: 0,
-			want: &Bitfield{
-				bits: []byte{},
-				size: 0,
-			},
+			name:      "negative size",
+			data:      []byte{0x01},
+			size:      -1,
+			expectErr: ErrSizeCanNotNegative,
 		},
 		{
-			name: "exact byte size",
-			bits: []byte{0xff},
-			size: 8,
-			want: &Bitfield{
-				bits: []byte{0xff},
-				size: 8,
-			},
+			name:      "zero size with empty slice",
+			data:      []byte{},
+			size:      0,
+			expectErr: nil,
 		},
 		{
-			name: "partial byte",
-			bits: []byte{0xff, 0xc0},
-			size: 10,
-			want: &Bitfield{
-				bits: []byte{0xff, 0xc0},
-				size: 10,
-			},
+			name:      "zero size with non-empty slice",
+			data:      []byte{0x01},
+			size:      0,
+			expectErr: ErrInvalidByteLength,
 		},
 		{
-			name: "multiple bytes",
-			bits: []byte{0xff, 0xff, 0xff},
-			size: 24,
-			want: &Bitfield{
-				bits: []byte{0xff, 0xff, 0xff},
-				size: 24,
-			},
+			name:      "sub-byte size (3 bits, requires 1 byte)",
+			data:      []byte{0x05}, // bits 0 and 2 set
+			size:      3,
+			expectErr: nil,
 		},
 		{
-			name: "invalid too few bytes",
-			bits: []byte{0xff},
-			size: 16,
-			want: nil,
+			name:      "too few bytes for size (8 bits requires 1 byte, got 0)",
+			data:      []byte{},
+			size:      8,
+			expectErr: ErrInvalidByteLength,
 		},
 		{
-			name: "invalid too many bytes",
-			bits: []byte{0xff, 0xff},
-			size: 8,
-			want: nil,
+			name:      "too many bytes for size (8 bits requires 1 byte, got 2)",
+			data:      []byte{0x00, 0x00},
+			size:      8,
+			expectErr: ErrInvalidByteLength,
 		},
 		{
-			name: "zero size with bytes",
-			bits: []byte{0xff},
-			size: 0,
-			want: nil,
+			name:      "multi-byte non-word-boundary (10 bits requires 2 bytes)",
+			data:      []byte{0xFF, 0x03},
+			size:      10,
+			expectErr: nil,
+		},
+		{
+			name:      "exact 64 bits (requires 8 bytes)",
+			data:      make([]byte, 8),
+			size:      64,
+			expectErr: nil,
+		},
+		{
+			name:      "boundary 65 bits (requires 9 bytes)",
+			data:      make([]byte, 9),
+			size:      65,
+			expectErr: nil,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NewBitfieldFromBytes(tt.bits, tt.size)
-
-			if got == nil {
-				if tt.want != nil {
-					t.Fatal("expected Bitfield, got nil")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bf, err := NewBitfieldFromBytes(tc.data, tc.size)
+			if tc.expectErr != nil {
+				if !errors.Is(err, tc.expectErr) {
+					t.Fatalf("expected error %v, got %v", tc.expectErr, err)
+				}
+				if bf != nil {
+					t.Fatal("expected nil Bitfield on error")
 				}
 				return
 			}
 
-			if tt.want == nil {
-				t.Fatal("expected nil, got Bitfield")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-
-			if got.size != tt.want.size {
-				t.Errorf("size = %d, want %d", got.size, tt.want.size)
-			}
-
-			if len(got.bits) != len(tt.want.bits) {
-				t.Errorf("len(bits) = %d, want %d",
-					len(got.bits), len(tt.want.bits))
-			}
-
-			for i := range got.bits {
-				if got.bits[i] != tt.want.bits[i] {
-					t.Errorf("bits[%d] = %08b, want %08b",
-						i, got.bits[i], tt.want.bits[i])
-				}
+			if bf.Size() != tc.size {
+				t.Errorf("expected size %d, got %d", tc.size, bf.Size())
 			}
 		})
 	}
+}
+
+func TestNewBitfieldFromBytes_ValueIntegrity(t *testing.T) {
+	// byte 0 = 0b00000101 (bits 0, 2)
+	// byte 1 = 0b00000010 (bit 9 -> index 1 of byte 1)
+	// byte 8 = 0b00000001 (bit 64 -> index 0 of byte 8, crosses into word 1)
+	data := make([]byte, 9)
+	data[0] = 0b00000101
+	data[1] = 0b00000010
+	data[8] = 0b00000001
+
+	bf, err := NewBitfieldFromBytes(data, 65)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedSet := []int{0, 2, 9, 64}
+	for _, idx := range expectedSet {
+		if !bf.Have(idx) {
+			t.Errorf("expected bit %d to be set", idx)
+		}
+	}
+
+	expectedUnset := []int{1, 3, 8, 10, 63}
+	for _, idx := range expectedUnset {
+		if bf.Have(idx) {
+			t.Errorf("expected bit %d to be unset", idx)
+		}
+	}
+}
+
+func TestSetHaveAndClear(t *testing.T) {
+	const size = 130
+	bf, _ := NewBitfield(size)
+
+	// Out of bounds
+	oob := []int{-1, -50, size, size + 1, math.MaxInt}
+	for _, idx := range oob {
+		if bf.Have(idx) {
+			t.Errorf("Have(%d) should be false", idx)
+		}
+		if bf.SetIndex(idx) {
+			t.Errorf("SetIndex(%d) should return false", idx)
+		}
+		if bf.ClearIndex(idx) {
+			t.Errorf("ClearIndex(%d) should return false", idx)
+		}
+	}
+
+	// Cross-word boundaries
+	indices := []int{0, 63, 64, 65, 127, 128, 129}
+	for _, idx := range indices {
+		if !bf.SetIndex(idx) {
+			t.Fatalf("SetIndex(%d) failed", idx)
+		}
+		if !bf.Have(idx) {
+			t.Errorf("Have(%d) should be true", idx)
+		}
+	}
+
+	for _, idx := range indices {
+		if !bf.ClearIndex(idx) {
+			t.Fatalf("ClearIndex(%d) failed", idx)
+		}
+		if bf.Have(idx) {
+			t.Errorf("Have(%d) should be false after clear", idx)
+		}
+	}
+}
+
+func TestAllSet(t *testing.T) {
+	t.Run("empty bitfield", func(t *testing.T) {
+		bf, _ := NewBitfield(0)
+		if !bf.AllSet() {
+			t.Error("expected AllSet() to be true for size 0")
+		}
+	})
+
+	t.Run("exact word boundary 64", func(t *testing.T) {
+		bf, _ := NewBitfield(64)
+		if bf.AllSet() {
+			t.Error("expected AllSet() to be false when empty")
+		}
+		for i := range 64 {
+			bf.SetIndex(i)
+		}
+		if !bf.AllSet() {
+			t.Error("expected AllSet() to be true when all 64 bits are set")
+		}
+		bf.ClearIndex(63)
+		if bf.AllSet() {
+			t.Error("expected AllSet() to be false when 1 bit is cleared")
+		}
+	})
+
+	t.Run("non-multiple of 64", func(t *testing.T) {
+		const size = 70
+		bf, _ := NewBitfield(size)
+
+		for i := range size {
+			bf.SetIndex(i)
+		}
+		if !bf.AllSet() {
+			t.Error("expected AllSet() to be true when all 70 bits are set")
+		}
+
+		// Bits above size in the last word must not invalidate AllSet
+		// if they remain 0, or if they get modified outside the bounds
+		bf.ClearIndex(69)
+		if bf.AllSet() {
+			t.Error("expected AllSet() to be false when bit 69 is cleared")
+		}
+	})
+
+	t.Run("bits set beyond size in the same word", func(t *testing.T) {
+		// Verify AllSet ignores unused bits in the last uint64 word
+		bf, _ := NewBitfield(3)
+		bf.SetIndex(0)
+		bf.SetIndex(1)
+		bf.SetIndex(2)
+		// Manually tamper higher unused bits in the word
+		bf.words[0] |= (uint64(1) << 10)
+
+		if !bf.AllSet() {
+			t.Error("AllSet should ignore bits beyond size in the last word")
+		}
+	})
+}
+
+func TestCount(t *testing.T) {
+	t.Run("empty bitfield", func(t *testing.T) {
+		bf, _ := NewBitfield(0)
+		if bf.Count() != 0 {
+			t.Errorf("expected count 0, got %d", bf.Count())
+		}
+	})
+
+	t.Run("arbitrary bits count", func(t *testing.T) {
+		bf, _ := NewBitfield(150)
+		indices := []int{0, 10, 63, 64, 100, 149}
+
+		for _, idx := range indices {
+			bf.SetIndex(idx)
+		}
+
+		if count := bf.Count(); count != len(indices) {
+			t.Errorf("expected count %d, got %d", len(indices), count)
+		}
+
+		bf.ClearIndex(10)
+		if count := bf.Count(); count != len(indices)-1 {
+			t.Errorf("expected count %d, got %d", len(indices)-1, count)
+		}
+	})
+
+	t.Run("ignores unmanaged bits in last word", func(t *testing.T) {
+		bf, _ := NewBitfield(5)
+		bf.SetIndex(0)
+		bf.SetIndex(4)
+		// Tamper an unused bit beyond size
+		bf.words[0] |= (uint64(1) << 30)
+
+		if count := bf.Count(); count != 2 {
+			t.Errorf("expected count to be 2 ignoring out-of-range bits, got %d", count)
+		}
+	})
 }
