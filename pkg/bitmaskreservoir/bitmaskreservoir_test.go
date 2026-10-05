@@ -23,7 +23,7 @@ func TestBlockReservoirPositive(t *testing.T) {
 		}
 	}
 
-	if _, err := br.Reserve(); err == nil || err != ErrNoBlocksAvailable {
+	if _, err := br.Reserve(); err == nil || err != ErrNoBitAvailable {
 		t.Fatalf("expted error ErrNoBlocksAvailable but err :%v", err)
 	}
 
@@ -99,6 +99,25 @@ func TestCanReserve(t *testing.T) {
 
 	if !br.CanReserve() {
 		t.Fatal("expcted true, return false")
+	}
+}
+
+func TestCountReserved(t *testing.T) {
+	br := NewBitmaskReservoir(150)
+	for range 150 {
+		br.Reserve()
+	}
+
+	if count := br.CountReserved(); count != 150 {
+		t.Fatalf("expected count 150, got %v", count)
+	}
+
+	for i, id := range []int{23, 50, 63, 64, 123, 124, 149} {
+		br.Unreserve(id)
+
+		if count := br.CountReserved(); count != (149 - i) {
+			t.Fatalf("expected count %v, got %v", (149 - i), count)
+		}
 	}
 }
 
