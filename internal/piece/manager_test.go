@@ -35,7 +35,7 @@ func testMetaInfo() *torrent.MetaInfo {
 }
 
 func peerWithPiece(pieceIndex int) *bitfield.Bitfield {
-	bf := bitfield.NewBitfield(9)
+	bf, _ := bitfield.NewBitfield(9)
 	bf.SetIndex(pieceIndex)
 	return bf
 }

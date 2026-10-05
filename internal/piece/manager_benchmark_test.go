@@ -21,7 +21,7 @@ func benchmarkMetaInfo(pieceCount int) *torrent.MetaInfo {
 }
 
 func peerWith10CentBits(pieceCount int) *bitfield.Bitfield {
-	peerBf := bitfield.NewBitfield(pieceCount)
+	peerBf, _ := bitfield.NewBitfield(pieceCount)
 	peerBf.SetIndex(0)
 	for i := 9; i < pieceCount; i += 10 {
 		peerBf.SetIndex(i)
@@ -42,7 +42,7 @@ func BenchmarkManagerNextBlock(b *testing.B) {
 					nil,
 				)
 
-				bf := bitfield.NewBitfield(pieceCount)
+				bf, _ := bitfield.NewBitfield(pieceCount)
 				bf.SetIndex(pieceCount - 1)
 				manager.AddPeer("peer", bf)
 

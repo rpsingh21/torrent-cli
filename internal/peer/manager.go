@@ -17,7 +17,7 @@ const (
 	MIN_REQUESTS_PER_PEER = 16
 	REQUEST_TIMEOUT       = 30 * time.Second
 	KEEPALIVE_TIMEOUT     = 2 * time.Minute
-	MAX_MESSAGE_LENGTH    = 2 * 1024 * 1024
+	MAX_MESSAGE_LENGTH    = 2 << 20
 )
 
 type Manager struct {

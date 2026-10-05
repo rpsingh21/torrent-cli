@@ -45,9 +45,14 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 		}
 	}
 
+	haveBitfield, err := bitfield.NewBitfield(len(pieces))
+	if err != nil {
+		panic(err)
+	}
+
 	return &Manager{
 		Metainfo:     meta,
-		Have:         bitfield.NewBitfield(len(pieces)),
+		Have:         haveBitfield,
 		Pieces:       pieces,
 		Availability: make([]uint16, len(pieces)),
 		PeerPieces:   make(map[string]*bitfield.Bitfield),

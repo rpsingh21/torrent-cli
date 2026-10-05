@@ -179,7 +179,12 @@ func (p *Peer) handleMessage(message *Message) error {
 		if len(message.Payload) != wantBytes {
 			return fmt.Errorf("invalid bitfield length %d, want %d %+v", len(message.Payload), wantBytes, p.pieceManager.Metainfo)
 		}
-		bf := bitfield.NewBitfieldFromBytes(message.Payload, p.pieceManager.Metainfo.TotalPices)
+
+		bf, err := bitfield.NewBitfieldFromBytes(message.Payload, p.pieceManager.Metainfo.TotalPices)
+		if err != nil {
+			return err
+		}
+
 		if bf == nil {
 			return fmt.Errorf("invalid bitfield from %s", p.Addr)
 		}
@@ -200,14 +205,14 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 
 	case MsgHaveAll:
-		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
+		p.bitfield, _ = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		for i := 0; i < p.pieceManager.Metainfo.TotalPices; i++ {
 			p.bitfield.SetIndex(i)
 		}
 		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgHaveNone:
-		p.bitfield = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
+		p.bitfield, _ = bitfield.NewBitfield(p.pieceManager.Metainfo.TotalPices)
 		p.pieceManager.AddPeer(p.Addr, p.bitfield)
 
 	case MsgPiece:
