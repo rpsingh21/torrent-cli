@@ -14,6 +14,7 @@ import (
 const (
 	MAX_PEERS             = 1000
 	MAX_REQUESTS_PER_PEER = 128
+	MIN_REQUESTS_PER_PEER = 16
 	REQUEST_TIMEOUT       = 30 * time.Second
 	KEEPALIVE_TIMEOUT     = 2 * time.Minute
 	MAX_MESSAGE_LENGTH    = 2 * 1024 * 1024
@@ -43,8 +44,8 @@ func (m *Manager) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	var lastTime = time.Now()
-	var mbp float64 = 1000_000
-	var kbp float64 = 1000
+	var mib float64 = 1 << 20
+	var kib float64 = 1 << 10
 	var preDownload, preUpload int64
 	preSnapshot := make(map[string]StatSnapshot)
 
@@ -94,21 +95,19 @@ func (m *Manager) Run(ctx context.Context) error {
 			completed, inprogress := m.pieceManager.GetStat()
 
 			fmt.Printf(
-				"\r\033[KTotalPeer: %v/%v [Downloaded: %.2f MB | Speed: %.2f MB/s] [Uploaded: %.2f MB | Speed: %.2f KB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v) | T: %v]",
+				"\r\033[KTotalPeer: %v/%v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v)]",
 				totalPeer,
 				len(preSnapshot),
-				float64(download)/mbp,
-				downloadRate/mbp,
-				float64(upload)/mbp,
-				uploadRate/kbp,
+				float64(download)/mib,
+				downloadRate/mib,
+				float64(upload)/mib,
+				uploadRate/kib,
 				totalReqs,
 				totalErrs,
 				completed,
-				inprogress+1,
+				inprogress,
 				inprogress-completed,
 				len(m.pieceManager.ReleaseQue),
-				m.metaInfo.TotalPices,
-				// m.pieceManager.ReleaseQue,
 			)
 		}
 	}
@@ -128,7 +127,7 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 	wg.Go(func() {
 		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
 			downloaded := p.stat.Snapshot().Downloaded
-			log.Printf("Peer %s failed: %v, Downloaded = %v KB", p.Addr, err.Error(), downloaded/1000)
+			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), downloaded/1024)
 		}
 		p.Close()
 		m.removePeer(p)

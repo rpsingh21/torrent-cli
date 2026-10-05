@@ -67,6 +67,41 @@ func TestBlockReservoirNegative(t *testing.T) {
 	}
 }
 
+func TestCanReserve(t *testing.T) {
+	br := NewBitmaskReservoir(1088)
+	for range 1050 {
+		br.Reserve()
+	}
+
+	if err := br.Unreserve(64); err != nil {
+		t.Fatalf("Unexpted error, %v", err)
+	}
+
+	if !br.CanReserve() {
+		t.Fatal("expcted true, return false")
+	}
+
+	if val, err := br.Reserve(); err != nil || val != 64 {
+		t.Fatalf("Unexpted result val %v, err %v", val, err)
+	}
+
+	if !br.CanReserve() {
+		t.Fatal("expcted true, return false")
+	}
+
+	if val, err := br.Reserve(); err != nil || val != 1050 {
+		t.Fatalf("Unexpted result val %v, err %v", val, err)
+	}
+
+	if val, err := br.Reserve(); err != nil || val != 1051 {
+		t.Fatalf("Unexpted result val %v, err %v", val, err)
+	}
+
+	if !br.CanReserve() {
+		t.Fatal("expcted true, return false")
+	}
+}
+
 func BenchmarkBitmaskReservoir(b *testing.B) {
 	for _, count := range []int{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024} {
 		b.Run(fmt.Sprintf("BC_%d", count), func(b *testing.B) {

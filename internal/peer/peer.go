@@ -45,6 +45,8 @@ type Peer struct {
 
 	bitfield *bitfield.Bitfield
 	stat     *Stat
+
+	fibrillation int64
 }
 
 func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
@@ -65,7 +67,8 @@ func (p *Peer) Start(pctx context.Context) error {
 	}
 
 	// init while create
-	p.maxBlockRequest = 16
+	p.maxBlockRequest = MIN_REQUESTS_PER_PEER
+	p.fibrillation = -1
 
 	if p.pending == nil {
 		p.pending = make(map[requestKey]time.Time)
@@ -138,7 +141,6 @@ func (p *Peer) fillRequests() error {
 		}
 		key := requestKey{piece: block.Piece, offset: block.Offset}
 
-		// ToDo: It can create inline?
 		message := &Message{
 			ID:      MsgRequest,
 			Payload: (&Request{Index: uint32(block.Piece), Begin: uint32(block.Offset), Length: uint32(block.Length)}).Encode(),
@@ -163,6 +165,11 @@ func (p *Peer) handleMessage(message *Message) error {
 	switch message.ID {
 	case MsgChoke:
 		p.Choked = true
+		snapshot := p.stat.Snapshot()
+		if p.fibrillation != -1 && snapshot.RequestsCompleted-p.fibrillation == 0 {
+			return fmt.Errorf("bad peer %v, frequently fibrillation.", p.Addr)
+		}
+		p.fibrillation = snapshot.RequestsCompleted
 
 	case MsgUnchoke:
 		p.Choked = false
@@ -300,7 +307,7 @@ func (p *Peer) updateRequestWindow(lastCompletedBlock int) int {
 	// 		p.Addr, p.maxBlockRequest, min(MAX_REQUESTS_PER_PEER, max(8, completedInWC)),
 	// 		completedInWC-p.maxBlockRequest)
 	// }
-	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(8, completedInWC))
+	p.maxBlockRequest = min(MAX_REQUESTS_PER_PEER, max(MIN_REQUESTS_PER_PEER, completedInWC))
 
 	return blockCompleted
 }

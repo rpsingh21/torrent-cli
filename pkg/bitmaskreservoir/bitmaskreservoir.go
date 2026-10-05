@@ -11,7 +11,7 @@ type BitmaskReservoir struct {
 	cursor    int
 }
 
-var ErrNoBlocksAvailable = errors.New("all piece blocks are already reserved")
+var ErrNoBlocksAvailable = errors.New("all blocks are already reserved")
 
 func NewBitmaskReservoir(size int) *BitmaskReservoir {
 	if size <= 0 {
