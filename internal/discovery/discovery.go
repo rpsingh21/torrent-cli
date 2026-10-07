@@ -43,16 +43,26 @@ func (d *Discovery) Start(ctx context.Context, peerChan chan<- *peer.Peer) error
 			return ctx.Err()
 
 		case <-timer.C:
+			var res *tracker.Response
+
 			for _, url := range d.metaInfo.AnnounceList {
 				log.Printf("starting getting peer from: %v", url)
-				res := d.GetPeerAddresses(ctx, url, "")
+				res = d.GetPeerAddresses(ctx, url, "")
 
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				default:
-					d.emitPeerAddressesToPeerManager(ctx, res.Addrs, peerChan)
 				}
+
+				if res != nil {
+					break
+				}
+			}
+
+			if res != nil {
+				d.emitPeerAddressesToPeerManager(ctx, res.Addrs, peerChan)
+				d.interval = time.Duration(res.Interval) * time.Second
 			}
 
 			timer.Reset(d.interval)
