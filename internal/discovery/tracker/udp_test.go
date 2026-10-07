@@ -15,7 +15,7 @@ func TestUDPAnnoucer(t *testing.T) {
 		t.Fatal("Error to decode magnet url")
 	}
 
-	res, err := AnnounceUPD(metaInfo, 6881)
+	res, err := AnnounceUPD(metaInfo.Announce, metaInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
