@@ -46,9 +46,9 @@ func UnmarshalTrackerResponse(data any) (*Response, error) {
 func parsePeers(v any) ([]string, error) {
 	switch peers := v.(type) {
 	case []byte:
-		if len(peers)&5 == 0 {
+		if len(peers)%6 == 0 {
 			return parseIpv4Bytes(peers), nil
-		} else if len(peers)&17 == 0 {
+		} else if len(peers)%18 == 0 {
 			return parseIpv6Bytes(peers), nil
 		}
 		return nil, ErrorInvalidPeersData

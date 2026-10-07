@@ -98,12 +98,13 @@ func AnnounceUPD(url string, metaInfo *torrent.MetaInfo) (*Response, error) {
 	}
 
 	interval := int(binary.BigEndian.Uint32(buf[8:12]))
-
+	leechers := binary.BigEndian.Uint32(buf[12:16])
+	seeders := binary.BigEndian.Uint32(buf[16:20])
 	addrs := parseIpv4Bytes(buf[20:])
 
 	response := &Response{
 		Interval: interval,
-		Addrs:    addrs,
+		Addrs:    addrs[:leechers+seeders],
 	}
 
 	return response, nil

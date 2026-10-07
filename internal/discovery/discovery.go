@@ -91,10 +91,6 @@ func (d *Discovery) emitPeerAddressesToPeerManager(
 	ctx context.Context, addrs []string, peerChan chan<- *peer.Peer) error {
 
 	for _, addr := range addrs {
-		if addr == "0.0.0.0:0" {
-			continue
-		}
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

@@ -47,6 +47,8 @@ type Peer struct {
 	stat     *Stat
 
 	fibrillation int64
+
+	utPex uint8
 }
 
 func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {

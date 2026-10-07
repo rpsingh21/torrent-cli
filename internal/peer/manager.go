@@ -161,6 +161,7 @@ func (m *Manager) scheduleRefreshDeadPeer(ctx context.Context, p *Peer) {
 	case <-ctx.Done():
 		return
 	case <-timer.C:
+		log.Printf("reconnecting peer %v after %v", p.Addr, d)
 		m.PeerChan <- p
 	}
 }

@@ -17,9 +17,10 @@ import (
 // The metadata protocol itself is defined by:
 // BEP-9: https://www.bittorrent.org/beps/bep_0009.html
 // BEP-10: https://www.bittorrent.org/beps/bep_0010.html
+// BEP-11: https://www.bittorrent.org/beps/bep_0011.html
 
-const metadataPieceSize = 16 * 1024
-const maxMetadataSize = 10 * 1024 * 1024
+const metadataPieceSize = 16 << 10
+const maxMetadataSize = 10 << 20
 
 func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo) ([]byte, error) {
 	p.metaInfo = metaInfo
@@ -105,7 +106,7 @@ func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 				continue
 			}
 
-			peerMetadataExtID, metadataSize, err = handleExtendedHandshakeMessage(extMessage)
+			peerMetadataExtID, metadataSize, _, err = handleExtendedHandshakeMessage(extMessage)
 			if err != nil {
 				return nil, err
 			}
@@ -268,44 +269,49 @@ func (p *Peer) sendMetaRequest(peerMetadataExtID uint8, index int) error {
 	return nil
 }
 
-func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, error) {
+func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, uint8, error) {
 
 	decodedMsg, err := bencode.NewDecoder(extMessage.Payload).Decode()
 	if err != nil {
-		return 0, 0, fmt.Errorf("decode extended handshake: %w", err)
+		return 0, 0, 0, fmt.Errorf("decode extended handshake: %w", err)
 	}
 
 	data, ok := decodedMsg.(map[string]any)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake is not a dictionary: %T", decodedMsg)
+		return 0, 0, 0, fmt.Errorf("extended handshake is not a dictionary: %T", decodedMsg)
 	}
 
 	metadataSizeValue, ok := data["metadata_size"].(int64)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake missing metadata_size: %v", data)
+		return 0, 0, 0, fmt.Errorf("extended handshake missing metadata_size: %v", data)
 	}
 
 	if metadataSizeValue <= 0 || metadataSizeValue > maxMetadataSize {
-		return 0, 0, fmt.Errorf("invalid metadata_size: %d", metadataSizeValue)
+		return 0, 0, 0, fmt.Errorf("invalid metadata_size: %d", metadataSizeValue)
 	}
 
 	m, ok := data["m"].(map[string]any)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake missing m: %v", data)
+		return 0, 0, 0, fmt.Errorf("extended handshake missing m: %v", data)
 	}
 
 	utMetadataValue, ok := m["ut_metadata"].(int64)
 	if !ok {
-		return 0, 0, fmt.Errorf("peer doesn't advertise ut_metadata: %v", m)
+		return 0, 0, 0, fmt.Errorf("peer doesn't advertise ut_metadata: %v", m)
 	}
 
 	if utMetadataValue <= 0 || utMetadataValue > 255 {
-		return 0, 0, fmt.Errorf("invalid ut_metadata extension ID: %d", utMetadataValue)
+		return 0, 0, 0, fmt.Errorf("invalid ut_metadata extension ID: %d", utMetadataValue)
+	}
+
+	utPex, ok := m["ut_pex"].(int64)
+	if !ok {
+		return 0, 0, 0, fmt.Errorf("peer doesn't advertise ut_pex %v", m)
 	}
 
 	// log.Printf("peer ut_metadata=%d metadata_size=%d", utMetadataValue, metadataSizeValue)
 
-	return uint8(utMetadataValue), int(metadataSizeValue), nil
+	return uint8(utMetadataValue), int(metadataSizeValue), uint8(utPex), nil
 }
 
 func handleExtendedMessage(extMessage *ExtendedMessage) (pieceIdx int, data []byte, msgType int, err error) {
