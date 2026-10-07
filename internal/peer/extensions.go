@@ -213,7 +213,7 @@ func (p *Peer) ExtendedHandshake() error {
 			// This is OUR ID for ut_metadata messages.
 			"ut_metadata": int64(2),
 		},
-		"p": int64(6881),
+		"p": int64(p.metaInfo.AppPort),
 	})
 	if err != nil {
 		return fmt.Errorf("extended handshake encoding failed: %w", err)

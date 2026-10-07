@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	BLOCK_SIZE = 16 * 1024
+	BLOCK_SIZE = 16 << 10
 )
 
 type Manager struct {

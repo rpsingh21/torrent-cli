@@ -2,17 +2,18 @@ package tracker
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
-
-	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
 type Response struct {
 	Interval int
-	Peers    []*peer.Peer
+	Addrs    []string
 }
+
+var ErrorInvalidPeersData = errors.New("invalid peers data")
 
 func UnmarshalTrackerResponse(data any) (*Response, error) {
 	root, ok := data.(map[string]any)
@@ -34,59 +35,81 @@ func UnmarshalTrackerResponse(data any) (*Response, error) {
 		return nil, fmt.Errorf("tracker response has no peers field")
 	}
 
-	peers, err := parsePeers(v)
+	addrs, err := parsePeers(v)
 	if err != nil {
 		return nil, err
 	}
-	return &Response{Interval: interval, Peers: peers}, nil
+
+	return &Response{Interval: interval, Addrs: addrs}, nil
 }
 
-func parsePeers(v any) ([]*peer.Peer, error) {
+func parsePeers(v any) ([]string, error) {
 	switch peers := v.(type) {
 	case []byte:
-		if len(peers)%6 != 0 {
-			return nil, fmt.Errorf("Invalid ipv4 length %d", len(peers))
+		if len(peers)&5 == 0 {
+			return parseIpv4Bytes(peers), nil
+		} else if len(peers)&17 == 0 {
+			return parseIpv6Bytes(peers), nil
 		}
-		result := make([]*peer.Peer, 0, len(peers)/6)
-
-		for i := 0; i < len(peers); i += 6 {
-			ip := net.IPv4(peers[i], peers[i+1], peers[i+2], peers[i+3]).String()
-			port := binary.BigEndian.Uint16(peers[i+4 : i+6])
-			result = append(result, newPeer(ip, strconv.Itoa(int(port))))
-		}
-
-		return result, nil
+		return nil, ErrorInvalidPeersData
 
 	case []any:
-		result := make([]*peer.Peer, 0, len(peers))
-		for _, item := range peers {
-			m, ok := item.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("invalid peer entry type %T", item)
-			}
-
-			ipBytes, ok := m["ip"].([]byte)
-			if !ok {
-				return nil, fmt.Errorf("invalid peer ip %T", m["ip"])
-			}
-
-			port64, ok := m["port"].(int64)
-			if !ok || port64 < 1 || port64 > 65535 {
-				return nil, fmt.Errorf("invalid peer port %v", m["port"])
-			}
-			port := strconv.Itoa(int(port64))
-
-			result = append(result, newPeer(string(ipBytes), port))
-		}
-		return result, nil
+		return parseBpeers(peers)
 
 	default:
 		return nil, fmt.Errorf("invalid peers field type %T", v)
 	}
 }
 
-func newPeer(ip string, port string) *peer.Peer {
-	return &peer.Peer{
-		Addr: net.JoinHostPort(ip, port),
+func parseIpv4Bytes(buf []byte) []string {
+	size := len(buf) / 6
+	result := make([]string, 0, size)
+
+	for i := range size {
+		off := i * 6
+		ip := net.IPv4(buf[off], buf[off+1], buf[off+2], buf[off+3]).String()
+		port := binary.BigEndian.Uint16(buf[off+4 : off+6])
+		result = append(result, net.JoinHostPort(ip, strconv.Itoa(int(port))))
 	}
+
+	return result
+}
+
+func parseIpv6Bytes(buf []byte) []string {
+	size := len(buf) / 18
+	result := make([]string, 0, size)
+
+	for i := range size {
+		off := i * 18
+		ip := net.IP(buf[off : off+16]).String()
+		port := uint16(binary.BigEndian.Uint16(buf[off+16 : off+18]))
+		result = append(result, net.JoinHostPort(ip, strconv.Itoa(int(port))))
+	}
+
+	return result
+}
+
+func parseBpeers(peers []any) ([]string, error) {
+	result := make([]string, 0, len(peers))
+	for _, item := range peers {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("invalid peer entry type %T", item)
+		}
+
+		ipBytes, ok := m["ip"].([]byte)
+		if !ok {
+			return nil, fmt.Errorf("invalid peer ip %T", m["ip"])
+		}
+
+		port64, ok := m["port"].(int64)
+		if !ok || port64 < 1 || port64 > 65535 {
+			return nil, fmt.Errorf("invalid peer port %v", m["port"])
+		}
+		port := strconv.Itoa(int(port64))
+
+		result = append(result, net.JoinHostPort(string(ipBytes), port))
+	}
+	return result, nil
+
 }
