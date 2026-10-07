@@ -26,6 +26,7 @@ type Manager struct {
 	metaInfo     *torrent.MetaInfo
 	pieceManager *piece.Manager
 	mu           sync.Mutex
+	refreshMap   map[string]time.Duration
 }
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
@@ -34,6 +35,7 @@ func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manage
 		PeerChan:     make(chan *Peer, 128),
 		metaInfo:     metaInfo,
 		pieceManager: pieceManager,
+		refreshMap:   make(map[string]time.Duration),
 	}
 }
 
@@ -119,19 +121,48 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 		m.mu.Unlock()
 		return
 	}
-	p.metaInfo = m.metaInfo
+	// p.metaInfo = m.metaInfo
 	p.pieceManager = m.pieceManager
 	m.activePeer[p.Addr] = p
 	m.mu.Unlock()
 
 	wg.Go(func() {
 		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
-			downloaded := p.stat.Snapshot().Downloaded
-			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), downloaded/1024)
+			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), p.stat.Snapshot().Downloaded/1024)
 		}
 		p.Close()
 		m.removePeer(p)
+
+		if p.stat.Snapshot().Downloaded > 0 {
+			go m.scheduleRefreshDeadPeer(ctx, p)
+		}
 	})
+}
+
+func (m *Manager) scheduleRefreshDeadPeer(ctx context.Context, p *Peer) {
+	m.mu.Lock()
+	d, ok := m.refreshMap[p.Addr]
+	if !ok {
+		d = 1 * time.Minute
+	}
+
+	m.refreshMap[p.Addr] = d << 1
+	m.mu.Unlock()
+
+	if d > 16*time.Minute {
+		log.Printf("peer %v refresh time out", p.Addr)
+		return
+	}
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+		m.PeerChan <- p
+	}
 }
 
 func (m *Manager) removePeer(p *Peer) {
