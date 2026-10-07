@@ -86,13 +86,13 @@ func (a *App) Download(ctx context.Context) error {
 
 	pieceManager := piece.NewManager(a.metaInfo, piece.StrategySequential, store)
 	peerManager := peer.NewManager(a.metaInfo, pieceManager)
-	discovery := discovery.New(a.metaInfo, 300, peerManager.PeerChan)
+	discovery := discovery.New(a.metaInfo, 300)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	done := make(chan error, 2)
-	go func() { done <- discovery.Start(runCtx) }()
+	go func() { done <- discovery.Start(runCtx, peerManager.PeerChan) }()
 	go func() { done <- peerManager.Run(runCtx) }()
 
 	completed := false

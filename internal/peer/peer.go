@@ -57,7 +57,10 @@ func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
 		stat:         &Stat{},
 		Choked:       true,
 		RemoteChoked: true,
-		pending:      make(map[requestKey]time.Time),
+
+		pending:         make(map[requestKey]time.Time),
+		maxBlockRequest: MIN_REQUESTS_PER_PEER,
+		fibrillation:    -1,
 	}
 }
 
@@ -67,15 +70,15 @@ func (p *Peer) Start(pctx context.Context) error {
 	}
 
 	// init while create
-	p.maxBlockRequest = MIN_REQUESTS_PER_PEER
-	p.fibrillation = -1
+	// p.maxBlockRequest = MIN_REQUESTS_PER_PEER
+	// p.fibrillation = -1
 
-	if p.pending == nil {
-		p.pending = make(map[requestKey]time.Time)
-		p.stat = &Stat{}
-		p.Choked = true
-		p.RemoteChoked = true
-	}
+	// if p.pending == nil {
+	// 	p.pending = make(map[requestKey]time.Time)
+	// 	p.stat = &Stat{}
+	// 	p.Choked = true
+	// 	p.RemoteChoked = true
+	// }
 
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -170,6 +173,7 @@ func (p *Peer) handleMessage(message *Message) error {
 			return fmt.Errorf("bad peer %v, frequently fibrillation.", p.Addr)
 		}
 		p.fibrillation = snapshot.RequestsCompleted
+		p.conn.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
 
 	case MsgUnchoke:
 		p.Choked = false

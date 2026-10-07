@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/rpsingh21/torrent-cli/internal/peer"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
@@ -17,8 +15,8 @@ import (
 
 const protocolID = 0x41727101980
 
-func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
-	UDP_URL := strings.TrimPrefix(metaInfo.Announce, "udp://")
+func AnnounceUPD(url string, metaInfo *torrent.MetaInfo) (*Response, error) {
+	UDP_URL := strings.TrimPrefix(url, "udp://")
 
 	if i := strings.Index(UDP_URL, "/"); i != -1 {
 		UDP_URL = UDP_URL[:i]
@@ -73,7 +71,7 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 	binary.BigEndian.PutUint32(announceReq[84:88], 0)                        // ip = 0 (use source)
 	binary.BigEndian.PutUint32(announceReq[88:92], uint32(rand.Intn(1<<31))) // key
 	binary.BigEndian.PutUint32(announceReq[92:96], 0xFFFFFFFF)               // num_want = -1
-	binary.BigEndian.PutUint16(announceReq[96:98], port)
+	binary.BigEndian.PutUint16(announceReq[96:98], metaInfo.AppPort)
 
 	if _, err := conn.Write(announceReq); err != nil {
 		return nil, err
@@ -101,21 +99,12 @@ func AnnounceUPD(metaInfo *torrent.MetaInfo, port uint16) (*Response, error) {
 
 	interval := int(binary.BigEndian.Uint32(buf[8:12]))
 
-	// Todo: Reuse response function to decode peers
-	// Handdel ipv6 as well
-	peerCount := (n - 20) / 6
-	peers := make([]*peer.Peer, 0, peerCount)
-	for i := range peerCount {
-		off := 20 + i*6
-		ip := net.IPv4(buf[off], buf[off+1], buf[off+2], buf[off+3]).String()
-		p := uint16(binary.BigEndian.Uint16(buf[off+4 : off+6]))
-		peers = append(peers, newPeer(ip, strconv.Itoa(int(p))))
-	}
+	addrs := parseIpv4Bytes(buf[20:])
 
 	response := &Response{
 		Interval: interval,
-		Peers:    peers,
+		Addrs:    addrs,
 	}
-	// log.Printf("Total peers from UDP %v", response)
+
 	return response, nil
 }

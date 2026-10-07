@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-func AnnounceHTTP(ctx context.Context, metaInfo *torrent.MetaInfo, event string) (*Response, error) {
-	url, err := metaInfo.BuildTrackerURL(event)
+func AnnounceHTTP(ctx context.Context, http_url string, metaInfo *torrent.MetaInfo, event string) (*Response, error) {
+	url, err := BuildTrackerURL(http_url, event, int(metaInfo.Length), metaInfo.InfoHash, metaInfo.AppId, metaInfo.AppPort)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +49,25 @@ func AnnounceHTTP(ctx context.Context, metaInfo *torrent.MetaInfo, event string)
 	return UnmarshalTrackerResponse(respData)
 }
 
-// func buildUrl(url string, event string) {
+func BuildTrackerURL(http_url, event string, length int, iHash, appId [20]byte, port uint16) (string, error) {
+	base, err := url.Parse(http_url)
+	if err != nil {
+		return "", err
+	}
 
-// }
+	params := url.Values{
+		"info_hash":  []string{string(iHash[:])},
+		"peer_id":    []string{string(appId[:])},
+		"port":       []string{strconv.Itoa(int(port))},
+		"uploaded":   []string{"0"},
+		"downloaded": []string{"0"},
+		"compact":    []string{"1"},
+		"left":       []string{strconv.Itoa(int(length))},
+	}
+	if event != "" {
+		params.Add("event", event)
+	}
+
+	base.RawQuery = params.Encode()
+	return base.String(), nil
+}

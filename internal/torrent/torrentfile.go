@@ -13,7 +13,7 @@ import (
 func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("Read torrent file: %w", err)
+		return nil, err
 	}
 
 	decoded, err := bencode.NewDecoder(data).Decode()
@@ -27,12 +27,16 @@ func NewTorrentDetailFromFile(filePath string) (*MetaInfo, error) {
 	}
 
 	torrent := &MetaInfo{
-		AppId: calculate_peer_id(),
+		AppId:   calculate_peer_id(),
+		AppPort: 6889,
 	}
 
 	if announce, ok := root["announce"].([]byte); ok {
 		torrent.Announce = string(announce)
 	}
+
+	torrent.AnnounceList = []string{torrent.Announce}
+	// announce-list
 
 	info, ok := root["info"].(map[string]any)
 	if !ok {

@@ -19,21 +19,6 @@ func TestTorrentFile(t *testing.T) {
 	fmt.Printf("%+v", nt)
 }
 
-func TestSingleTorrentFile(t *testing.T) {
-	epath, _ := os.Getwd()
-	path := path.Join(epath, "../../testdata/torrents/singlefile.torrent")
-	nt, err := NewTorrentDetailFromFile(path)
-	if err != nil || nt.Announce == "" {
-		t.Errorf("Ancounter error while decoding torrent file %v", err)
-	}
-	if _, err := nt.BuildTrackerURL("start"); err != nil {
-		t.Error("Fail to build tracker url", err)
-	}
-	if _, err := nt.BuildTrackerURL(""); err != nil {
-		t.Error("Faild to build URL", err)
-	}
-}
-
 var benchmarkResult *MetaInfo
 
 func BenchmarkTorrentMetaInfoFromFile(b *testing.B) {
