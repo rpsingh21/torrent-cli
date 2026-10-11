@@ -64,8 +64,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			}
 			m.addPeer(ctx, p, &wg)
 
-		case <-ticker.C:
-			now := time.Now()
+		case now := <-ticker.C:
 			elapsed := now.Sub(lastTime).Seconds()
 			lastTime = now
 

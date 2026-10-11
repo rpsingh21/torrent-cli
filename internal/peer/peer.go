@@ -71,17 +71,6 @@ func (p *Peer) Start(pctx context.Context) error {
 		return fmt.Errorf("peer is missing metainfo or piece manager")
 	}
 
-	// init while create
-	// p.maxBlockRequest = MIN_REQUESTS_PER_PEER
-	// p.fibrillation = -1
-
-	// if p.pending == nil {
-	// 	p.pending = make(map[requestKey]time.Time)
-	// 	p.stat = &Stat{}
-	// 	p.Choked = true
-	// 	p.RemoteChoked = true
-	// }
-
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
@@ -256,10 +245,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 
 	case MsgExtended:
-		// if err := p.handleExtendedMessage(message); err != nil {
-		// 	return err
-		// }
-		log.Printf("extened message %v", message.name())
+		p.handleExtendedPexMessageFlow(message)
 
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:
 		log.Println("upload-side messages are intentionally ignored in this download-only beta.")

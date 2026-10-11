@@ -17,8 +17,8 @@ func TestExtendedHandshake(t *testing.T) {
 	peers := []struct {
 		addr string
 	}{
-		{"82.15.154.129:55175"},
-		{"178.162.159.33:49114"},
+		// {"78.157.79.230:27430"},
+		{"134.19.179.50:46586"},
 	}
 	for _, p := range peers {
 		t.Run(p.addr, func(t *testing.T) {
