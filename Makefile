@@ -1,5 +1,5 @@
 APP := torrent-cli
-CMD := ./cmd/main.go
+CMD := ./tui/main.go
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 
 .PHONY: all build run test bench race fmt vet clean
