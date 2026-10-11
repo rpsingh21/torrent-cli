@@ -1,12 +1,13 @@
 APP := torrent-cli
-CMD := ./cmd/main
+CMD := ./cmd/main.go
+LDFLAGS := -s -w -X main.Version=$(VERSION)
 
 .PHONY: all build run test bench race fmt vet clean
 
 all: fmt vet test build
 
 build:
-	go build -trimpath -o bin/$(APP) $(CMD)
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/$(APP) $(CMD)
 
 run:
 	go run $(CMD)

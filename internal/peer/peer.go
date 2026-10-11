@@ -250,6 +250,8 @@ func (p *Peer) handleMessage(message *Message) error {
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:
 		log.Println("upload-side messages are intentionally ignored in this download-only beta.")
 		// Upload-side messages are intentionally ignored in this download-only beta.
+	default:
+		log.Printf("peer %v Unknow message %+v", p.Addr, message)
 	}
 
 	return nil
