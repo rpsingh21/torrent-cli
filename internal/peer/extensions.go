@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha1"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
@@ -17,9 +19,10 @@ import (
 // The metadata protocol itself is defined by:
 // BEP-9: https://www.bittorrent.org/beps/bep_0009.html
 // BEP-10: https://www.bittorrent.org/beps/bep_0010.html
+// BEP-11: https://www.bittorrent.org/beps/bep_0011.html
 
-const metadataPieceSize = 16 * 1024
-const maxMetadataSize = 10 * 1024 * 1024
+const metadataPieceSize = 16 << 10
+const maxMetadataSize = 10 << 20
 
 func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo) ([]byte, error) {
 	p.metaInfo = metaInfo
@@ -105,7 +108,7 @@ func (p *Peer) metadataLoop(ctx context.Context) ([]byte, error) {
 				continue
 			}
 
-			peerMetadataExtID, metadataSize, err = handleExtendedHandshakeMessage(extMessage)
+			peerMetadataExtID, metadataSize, _, err = handleExtendedHandshakeMessage(extMessage)
 			if err != nil {
 				return nil, err
 			}
@@ -211,9 +214,10 @@ func (p *Peer) ExtendedHandshake() error {
 	extHandshakePayload, err := bencode.Encode(map[string]any{
 		"m": map[string]any{
 			// This is OUR ID for ut_metadata messages.
+			"ut_pex":      int64(1),
 			"ut_metadata": int64(2),
 		},
-		"p": int64(6881),
+		"p": int64(p.metaInfo.AppPort),
 	})
 	if err != nil {
 		return fmt.Errorf("extended handshake encoding failed: %w", err)
@@ -225,12 +229,12 @@ func (p *Peer) ExtendedHandshake() error {
 		Payload: extHandshakePayload,
 	}
 
-	msg := Message{
+	msg := &Message{
 		ID:      MsgExtended,
 		Payload: extMsg.Encode(),
 	}
 
-	if _, err := p.writeAll(msg.EncodeMessage()); err != nil {
+	if _, err := p.WriteMessage(msg); err != nil {
 		return fmt.Errorf("extended handshake failed: %w", err)
 	}
 
@@ -268,44 +272,53 @@ func (p *Peer) sendMetaRequest(peerMetadataExtID uint8, index int) error {
 	return nil
 }
 
-func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, error) {
+func handleExtendedHandshakeMessage(extMessage *ExtendedMessage) (uint8, int, uint8, error) {
 
 	decodedMsg, err := bencode.NewDecoder(extMessage.Payload).Decode()
 	if err != nil {
-		return 0, 0, fmt.Errorf("decode extended handshake: %w", err)
+		return 0, 0, 0, fmt.Errorf("decode extended handshake: %w", err)
 	}
 
 	data, ok := decodedMsg.(map[string]any)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake is not a dictionary: %T", decodedMsg)
+		return 0, 0, 0, fmt.Errorf("extended handshake is not a dictionary: %T", decodedMsg)
 	}
 
 	metadataSizeValue, ok := data["metadata_size"].(int64)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake missing metadata_size: %v", data)
+		return 0, 0, 0, fmt.Errorf("extended handshake missing metadata_size: %v", data)
 	}
 
 	if metadataSizeValue <= 0 || metadataSizeValue > maxMetadataSize {
-		return 0, 0, fmt.Errorf("invalid metadata_size: %d", metadataSizeValue)
+		return 0, 0, 0, fmt.Errorf("invalid metadata_size: %d", metadataSizeValue)
 	}
 
 	m, ok := data["m"].(map[string]any)
 	if !ok {
-		return 0, 0, fmt.Errorf("extended handshake missing m: %v", data)
+		return 0, 0, 0, fmt.Errorf("extended handshake missing m: %v", data)
 	}
 
 	utMetadataValue, ok := m["ut_metadata"].(int64)
 	if !ok {
-		return 0, 0, fmt.Errorf("peer doesn't advertise ut_metadata: %v", m)
+		return 0, 0, 0, fmt.Errorf("peer doesn't advertise ut_metadata: %v", m)
 	}
 
 	if utMetadataValue <= 0 || utMetadataValue > 255 {
-		return 0, 0, fmt.Errorf("invalid ut_metadata extension ID: %d", utMetadataValue)
+		return 0, 0, 0, fmt.Errorf("invalid ut_metadata extension ID: %d", utMetadataValue)
+	}
+
+	utPex, ok := m["ut_pex"].(int64)
+	if !ok {
+		return 0, 0, 0, fmt.Errorf("peer doesn't advertise ut_pex %v", m)
+	}
+
+	if uint(utPex) > 255 {
+		return 0, 0, 0, fmt.Errorf("wrong extented pex_id %v", utPex)
 	}
 
 	// log.Printf("peer ut_metadata=%d metadata_size=%d", utMetadataValue, metadataSizeValue)
 
-	return uint8(utMetadataValue), int(metadataSizeValue), nil
+	return uint8(utMetadataValue), int(metadataSizeValue), uint8(utPex), nil
 }
 
 func handleExtendedMessage(extMessage *ExtendedMessage) (pieceIdx int, data []byte, msgType int, err error) {
@@ -401,4 +414,95 @@ func findBencodedEnd(data []byte) int {
 	}
 
 	return -1
+}
+
+func (p *Peer) handleExtendedPexMessageFlow(message *Message) error {
+	extMessage, err := ParseExtendedMessage(message.Payload)
+	if err != nil {
+		return fmt.Errorf("extented message parse failed")
+	}
+
+	switch extMessage.ID {
+	case 0:
+		_, _, utPex, err := handleExtendedHandshakeMessage(extMessage)
+		if err != nil {
+			return fmt.Errorf("extened handshake failed, %v", err)
+		}
+
+		p.utPex = utPex
+		log.Printf("peer %v got utPex id %v", p.Addr, utPex)
+
+	case 1:
+		log.Printf("peer %v got for utPex data %+v", p.Addr, extMessage)
+
+	case 2:
+		log.Printf("peer %v got for metadata %+v", p.Addr, extMessage)
+
+	default:
+		log.Printf("peer %v unexpected extended message %+v", p.Addr, extMessage)
+	}
+
+	return nil
+}
+
+func (p *Peer) sendPexMessage(ipv4s, ipv6s []string) {
+	log.Printf("peer %v sending message to user ipv4 %v ipv6 %v", p.Addr, ipv4s, ipv6s)
+
+	var ips4bytes, ipv6bytes []byte
+
+	for _, addr := range ipv4s {
+		b, err := AddrPortToBytes(addr)
+		if err != nil || addr == p.Addr {
+			continue
+		}
+		ips4bytes = append(ips4bytes, b[:]...)
+	}
+
+	for _, addr := range ipv6s {
+		b, err := AddrPortToBytes(addr)
+		if err != nil || addr == p.Addr {
+			continue
+		}
+		ipv6bytes = append(ipv6bytes, b[:]...)
+	}
+
+	extendedMessage, err := bencode.Encode(map[string]any{
+		"added":  ips4bytes,
+		"added6": ipv6bytes,
+	})
+
+	if err != nil {
+		log.Printf("peer %v pex payload encoding failed, %v", p.Addr, err)
+		return
+	}
+
+	extMsg := ExtendedMessage{
+		ID:      p.utPex,
+		Payload: extendedMessage,
+	}
+
+	msg := &Message{
+		ID:      MsgExtended,
+		Payload: extMsg.Encode(),
+	}
+
+	if _, err := p.WriteMessage(msg); err != nil {
+		log.Printf("peer %v pex write message failed, %v", p.Addr, err)
+	}
+
+	log.Printf("peer %v send successfully pex message", p.Addr)
+}
+
+func AddrPortToBytes(s string) ([]byte, error) {
+	ap, err := netip.ParseAddrPort(s)
+	if err != nil {
+		return nil, err
+	}
+
+	ipBytes := ap.Addr().AsSlice() // 4 bytes for IPv4, 16 bytes for IPv6
+	buf := make([]byte, len(ipBytes)+2)
+	copy(buf, ipBytes)
+	binary.BigEndian.PutUint16(buf[len(ipBytes):], ap.Port())
+
+	return buf, nil
 }

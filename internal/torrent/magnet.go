@@ -28,6 +28,7 @@ func MetaInfoFromMagnetURL(murl string) (*MetaInfo, error) {
 
 	metaInfo := &MetaInfo{
 		AppId:        calculate_peer_id(),
+		AppPort:      6889,
 		Announce:     tracker,
 		AnnounceList: allTrackers,
 		InfoHash:     infoHash,

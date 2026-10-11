@@ -47,6 +47,8 @@ type Peer struct {
 	stat     *Stat
 
 	fibrillation int64
+
+	utPex uint8
 }
 
 func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
@@ -57,24 +59,16 @@ func NewPeer(id, addr string, metaInfo *torrent.MetaInfo) *Peer {
 		stat:         &Stat{},
 		Choked:       true,
 		RemoteChoked: true,
-		pending:      make(map[requestKey]time.Time),
+
+		pending:         make(map[requestKey]time.Time),
+		maxBlockRequest: MIN_REQUESTS_PER_PEER,
+		fibrillation:    -1,
 	}
 }
 
 func (p *Peer) Start(pctx context.Context) error {
 	if p.metaInfo == nil || p.pieceManager == nil {
 		return fmt.Errorf("peer is missing metainfo or piece manager")
-	}
-
-	// init while create
-	p.maxBlockRequest = MIN_REQUESTS_PER_PEER
-	p.fibrillation = -1
-
-	if p.pending == nil {
-		p.pending = make(map[requestKey]time.Time)
-		p.stat = &Stat{}
-		p.Choked = true
-		p.RemoteChoked = true
 	}
 
 	ctx, cancel := context.WithCancel(pctx)
@@ -170,6 +164,7 @@ func (p *Peer) handleMessage(message *Message) error {
 			return fmt.Errorf("bad peer %v, frequently fibrillation.", p.Addr)
 		}
 		p.fibrillation = snapshot.RequestsCompleted
+		p.conn.SetReadDeadline(time.Now().Add(KEEPALIVE_TIMEOUT))
 
 	case MsgUnchoke:
 		p.Choked = false
@@ -250,10 +245,7 @@ func (p *Peer) handleMessage(message *Message) error {
 		}
 
 	case MsgExtended:
-		// if err := p.handleExtendedMessage(message); err != nil {
-		// 	return err
-		// }
-		log.Printf("extened message %v", message.name())
+		p.handleExtendedPexMessageFlow(message)
 
 	case MsgRequest, MsgCancel, MsgPort, MsgSuggest, MsgRejectRequest:
 		log.Println("upload-side messages are intentionally ignored in this download-only beta.")

@@ -48,7 +48,7 @@ func TestTracker(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			tarckerResp, err := AnnounceHTTP(t.Context(), metaInfo, "started")
+			tarckerResp, err := AnnounceHTTP(t.Context(), metaInfo.Announce, metaInfo, "started")
 			if tf.errorExp != (err != nil) {
 				fmt.Printf("Error => %+v\n", err)
 				t.Fatal(err)

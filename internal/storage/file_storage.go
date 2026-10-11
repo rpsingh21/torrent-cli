@@ -1,11 +1,12 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )

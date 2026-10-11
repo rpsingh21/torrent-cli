@@ -9,15 +9,15 @@ import (
 	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
-	"github.com/rpsingh21/torrent-cli/internal/discovery/tracker"
+	"github.com/rpsingh21/torrent-cli/internal/discovery"
+	"github.com/rpsingh21/torrent-cli/internal/peer"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
 func updateMetainfoFromPeers(ctx context.Context, metaInfo *torrent.MetaInfo) error {
-	resp, err := tracker.AnnounceUPD(metaInfo, 6881)
-	if err != nil {
-		return err
-	}
+	discovery := discovery.New(metaInfo, 900)
+
+	resp := discovery.GetPeerAddresses(ctx, metaInfo.Announce, "")
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -25,8 +25,9 @@ func updateMetainfoFromPeers(ctx context.Context, metaInfo *torrent.MetaInfo) er
 	result := make(chan map[string]any, 1)
 	var wg sync.WaitGroup
 
-	for _, peer := range resp.Peers {
+	for _, addr := range resp.Addrs {
 		wg.Go(func() {
+			peer := peer.NewPeer("", addr, metaInfo)
 
 			// Exit early if another peer already succeeded and cancelled the context
 			if ctx.Err() != nil {
