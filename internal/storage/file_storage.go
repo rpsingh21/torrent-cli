@@ -27,10 +27,6 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 	offsets, files := make([]int64, n+1), make([]*os.File, n)
 	offsets[0] = 0
 
-	if err := os.RemoveAll(baseDir); err != nil {
-		log.Printf("Getting error while removing folder : %v", err)
-	}
-
 	fileStorage := &FileStorage{
 		metaInfo: metaInfo,
 		offsets:  offsets,
@@ -54,7 +50,7 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 
 		file, err := os.OpenFile(
 			filePath,
-			os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+			os.O_RDWR|os.O_CREATE,
 			0644,
 		)
 		if err != nil {
@@ -69,14 +65,66 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 
 }
 
-// Todo: Will imp
-func (f *FileStorage) ReadAt(p []byte, offset int64) (int, error) {
-	return 0, fmt.Errorf("Not implemented")
+func (f *FileStorage) ReadAt(buf []byte, offset int64) (int, error) {
+	if offset < 0 {
+		return 0, fmt.Errorf("negative offset: %d", offset)
+	}
+
+	if len(buf) == 0 {
+		return 0, nil
+	}
+
+	totalSize := f.metaInfo.TotalSize
+	if offset >= totalSize {
+		return 0, io.EOF
+	}
+
+	totalRead := 0
+
+	for totalRead < len(buf) {
+		currentOffset := offset + int64(totalRead)
+		if currentOffset >= totalSize {
+			return totalRead, io.EOF
+		}
+
+		fileIndex := f.getFileIndex(currentOffset)
+		if fileIndex < 0 || fileIndex >= len(f.files) {
+			return totalRead, io.EOF
+		}
+
+		fileStart := f.offsets[fileIndex]
+		fileEnd := f.offsets[fileIndex+1]
+
+		fileOffset := currentOffset - fileStart
+		availableInFile := fileEnd - currentOffset
+		remainingToRead := int64(len(buf) - totalRead)
+
+		toRead := min(availableInFile, remainingToRead)
+
+		n, err := f.files[fileIndex].ReadAt(buf[totalRead:totalRead+int(toRead)], fileOffset)
+		totalRead += n
+
+		if err != nil && !errors.Is(err, io.EOF) {
+			return totalRead, fmt.Errorf("read error on file %d at offset %d: %w", fileIndex, fileOffset, err)
+		}
+
+		// If a file yielded fewer bytes than expected, we hit premature EOF
+		if int64(n) < toRead {
+			return totalRead, io.EOF
+		}
+	}
+
+	return totalRead, nil
 }
 
-// Todo: Will imp
-func (f *FileStorage) ReadPiece(index int, dst []byte) error {
-	return fmt.Errorf("Not implemented")
+func (f *FileStorage) ReadPiece(index int, buf []byte) error {
+	offset := int64(index) * f.metaInfo.PieceLength
+
+	if _, err := f.ReadAt(buf, offset); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Todo: Will imp
@@ -134,21 +182,12 @@ func (fs *FileStorage) Close() error {
 	return firstErr
 }
 
-// It will take piece index and return file index.
-// So data write on corrent file
-func (fs *FileStorage) getFileIndex(target int64) int {
-	left := 0
-	right := len(fs.offsets) - 1
+func (f *FileStorage) getFileIndex(offset int64) int {
+	// f.offsets should have len(files) + 1 entries: [0, size0, size0+size1, ...]
+	// We look for the largest index i such that f.offsets[i] <= offset
+	idx := sort.Search(len(f.offsets), func(i int) bool {
+		return f.offsets[i] > offset
+	}) - 1
 
-	for left < right {
-		mid := (left + right) >> 1
-
-		if fs.offsets[mid+1] <= target {
-			left = mid + 1
-		} else {
-			right = mid
-		}
-	}
-
-	return left
+	return idx
 }
