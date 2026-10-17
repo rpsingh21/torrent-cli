@@ -18,10 +18,11 @@ const (
 	MsgPiece
 	MsgCancel
 	MsgPort
-	MsgSuggest
+	MsgSuggest MessageID = iota + 4
 	MsgHaveAll
 	MsgHaveNone
 	MsgRejectRequest
+	MsgAllowFast
 	MsgExtended MessageID = 20
 )
 

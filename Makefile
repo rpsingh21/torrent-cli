@@ -1,12 +1,17 @@
 APP := torrent-cli
-CMD := ./cmd/main
+CMD := ./tui/main.go
+LDFLAGS := -s -w -X main.Version=$(VERSION)
 
 .PHONY: all build run test bench race fmt vet clean
 
 all: fmt vet test build
 
 build:
-	go build -trimpath -o bin/$(APP) $(CMD)
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/$(APP) $(CMD)
+
+# GOAMD64=v3 go build -ldflags="-s -w" -o main main.go
+build-amd:
+	GOAMD64=v3 go build -ldflags="$(LDFLAGS)" -o bin/$(APP) $(CMD)
 
 run:
 	go run $(CMD)
