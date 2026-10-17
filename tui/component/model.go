@@ -150,7 +150,7 @@ func (m *model) updateViewportContent() {
 			if len(line) > m.width-4 {
 				line = line[:m.width-7] + "..."
 			}
-			b.WriteString(itemStyle.Render(line) + "\n")
+			b.WriteString(itemStyle.Render(line + "\n"))
 		}
 	}
 
@@ -159,7 +159,7 @@ func (m *model) updateViewportContent() {
 }
 
 func (m model) headerView() string {
-	title := headerStyle.Width(m.width).Render("🚀 BTUI")
+	title := headerStyle.Width(m.width).Render("🚀 B-TUI")
 	return title
 }
 
