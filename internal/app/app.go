@@ -18,7 +18,6 @@ import (
 const MAX_PIECE_SIZE = 256 << 20
 
 type App struct {
-	logger    *log.Logger
 	metaInfo  *torrent.MetaInfo
 	outputDir string
 }
@@ -35,7 +34,6 @@ func NewAppFromTorrentFile(tfPath, outputDir string) (*App, error) {
 	}
 
 	return &App{
-		logger:    log.Default(),
 		metaInfo:  metaInfo,
 		outputDir: outputDir,
 	}, nil
@@ -63,16 +61,12 @@ func NewAppFromMagnetLink(ctx context.Context, url, outputDir string) (*App, err
 	}
 
 	return &App{
-		logger:    log.Default(),
 		metaInfo:  metaInfo,
 		outputDir: outputDir,
 	}, nil
 }
 
 func (a *App) Download(ctx context.Context) error {
-	fmt.Printf("download details == Piece Size %v | Pieces %v | Blocks per Piece %v\n\n",
-		a.metaInfo.PieceLength, a.metaInfo.TotalSize/a.metaInfo.PieceLength,
-		a.metaInfo.PieceLength/(16*1024))
 	store, err := storage.NewFileStorage(a.metaInfo, a.outputDir)
 	if err != nil {
 		return err
@@ -80,7 +74,7 @@ func (a *App) Download(ctx context.Context) error {
 
 	defer func() {
 		if closeErr := store.Close(); closeErr != nil {
-			a.logger.Printf("storage close failed: %v", closeErr)
+			log.Printf("storage close failed: %v", closeErr)
 		}
 	}()
 
@@ -96,8 +90,10 @@ func (a *App) Download(ctx context.Context) error {
 	go func() { done <- peerManager.Run(runCtx) }()
 
 	completed := false
-	completionCheck := time.NewTicker(2 * time.Second)
+	completionCheck := time.NewTicker(1 * time.Second)
 	defer completionCheck.Stop()
+
+	var preDownloaded, preUploaded int
 
 	for finished := 0; finished < 2; {
 		select {
@@ -109,11 +105,18 @@ func (a *App) Download(ctx context.Context) error {
 				peerManager.Close()
 				return err
 			}
+
 		case <-completionCheck.C:
 			if pieceManager.Completed() {
 				completed = true
 				cancel()
 			}
+			ms := peerManager.UpdateState()
+			printStat(len(ms.PeerStat), ms.Downloaded, ms.Uploaded, 0, 0, ms.Completed, ms.Inprogress,
+				ms.Downloaded-preDownloaded, ms.Uploaded-preUploaded)
+			preDownloaded = ms.Downloaded
+			preUploaded = ms.Uploaded
+
 		case <-ctx.Done():
 			cancel()
 		}
@@ -124,4 +127,23 @@ func (a *App) Download(ctx context.Context) error {
 		return nil
 	}
 	return ctx.Err()
+}
+
+const mib = 1 << 20
+const kib = 1 << 10
+
+func printStat(totalPeer, downloaded, uploaded, totalReqs, totalErrs, completed, inprogress, dr, ur int) {
+
+	fmt.Printf(
+		"\r\033[KTotalPeer: %v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v]",
+		totalPeer,
+		float64(downloaded)/mib,
+		float64(dr)/mib,
+		float64(uploaded)/mib,
+		float64(ur)/kib,
+		totalReqs,
+		totalErrs,
+		completed,
+		inprogress,
+	)
 }

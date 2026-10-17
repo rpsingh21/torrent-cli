@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -27,6 +26,7 @@ type Manager struct {
 	pieceManager *piece.Manager
 	mu           sync.Mutex
 	refreshMap   map[string]time.Duration
+	MStat        *ManagerStat
 }
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
@@ -36,20 +36,12 @@ func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manage
 		metaInfo:     metaInfo,
 		pieceManager: pieceManager,
 		refreshMap:   make(map[string]time.Duration),
+		MStat:        NewManagerStat(metaInfo),
 	}
 }
 
 func (m *Manager) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	var lastTime = time.Now()
-	var mib float64 = 1 << 20
-	var kib float64 = 1 << 10
-	var preDownload, preUpload int64
-	preSnapshot := make(map[string]StatSnapshot)
 
 	for {
 		select {
@@ -63,55 +55,21 @@ func (m *Manager) Run(ctx context.Context) error {
 				continue
 			}
 			m.addPeer(ctx, p, &wg)
-
-		case now := <-ticker.C:
-			elapsed := now.Sub(lastTime).Seconds()
-			lastTime = now
-
-			var download, upload int64
-			var totalReqs, totalErrs int64
-
-			m.mu.Lock()
-			totalPeer := len(m.activePeer)
-
-			for _, v := range m.activePeer {
-				preSnapshot[v.Addr] = v.stat.Snapshot()
-			}
-			m.mu.Unlock()
-
-			for _, snap := range preSnapshot {
-				download += snap.Downloaded
-				upload += snap.Uploaded
-
-				totalReqs += snap.RequestsSent
-				totalErrs += snap.Errors
-			}
-
-			downloadRate := float64(download-preDownload) / elapsed
-			uploadRate := float64(upload-preUpload) / elapsed
-
-			preDownload = download
-			preUpload = upload
-
-			completed, inprogress := m.pieceManager.GetStat()
-
-			fmt.Printf(
-				"\r\033[KTotalPeer: %v/%v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v (%v | %v)]",
-				totalPeer,
-				len(preSnapshot),
-				float64(download)/mib,
-				downloadRate/mib,
-				float64(upload)/mib,
-				uploadRate/kib,
-				totalReqs,
-				totalErrs,
-				completed,
-				inprogress,
-				inprogress-completed,
-				len(m.pieceManager.ReleaseQue),
-			)
 		}
 	}
+}
+
+func (m *Manager) UpdateState() ManagerStatSnapshot {
+	preSnapshot := make(map[string]StatSnapshot)
+	m.mu.Lock()
+	for _, v := range m.activePeer {
+		preSnapshot[v.Addr] = v.stat.Snapshot()
+	}
+	m.mu.Unlock()
+
+	completed, inprogress := m.pieceManager.GetStat()
+	m.MStat.updatePeerStatMap(preSnapshot, completed, inprogress-completed)
+	return m.MStat.Snapshot()
 }
 
 func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
@@ -170,6 +128,7 @@ func (m *Manager) removePeer(p *Peer) {
 		return
 	}
 
+	m.MStat.updatePeerStat(p.Addr, p.stat.Snapshot())
 	m.mu.Lock()
 	delete(m.activePeer, p.Addr)
 	m.mu.Unlock()
