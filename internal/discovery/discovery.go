@@ -13,19 +13,14 @@ import (
 
 // Discovery collects peers from trackers. DHT and PEX can be added as additional
 // discovery sources without changing PeerManager.
-type Discovery struct {
-	metaInfo *torrent.MetaInfo
-	interval time.Duration
+type Discovery struct{}
+
+func New() *Discovery {
+	return &Discovery{}
 }
 
-func New(metaInfo *torrent.MetaInfo, defaultInterval int) *Discovery {
-	return &Discovery{
-		metaInfo: metaInfo,
-		interval: time.Duration(defaultInterval) * time.Second,
-	}
-}
-
-func (d *Discovery) Start(ctx context.Context, peerChan chan<- *peer.Peer) error {
+func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerChan chan<- *peer.Peer) error {
+	interval := 900 * time.Second
 	timer := time.NewTimer(1 * time.Second)
 	defer timer.Stop()
 
@@ -45,9 +40,9 @@ func (d *Discovery) Start(ctx context.Context, peerChan chan<- *peer.Peer) error
 		case <-timer.C:
 			var res *tracker.Response
 
-			for _, url := range d.metaInfo.AnnounceList {
+			for _, url := range metainfo.AnnounceList {
 				log.Printf("starting getting peer from: %v", url)
-				res = d.GetPeerAddresses(ctx, url, "")
+				res = d.GetPeerAddresses(ctx, metainfo, url, "")
 
 				select {
 				case <-ctx.Done():
@@ -61,23 +56,23 @@ func (d *Discovery) Start(ctx context.Context, peerChan chan<- *peer.Peer) error
 			}
 
 			if res != nil {
-				d.emitPeerAddressesToPeerManager(ctx, res.Addrs, peerChan)
-				d.interval = time.Duration(res.Interval) * time.Second
+				d.emitPeerAddressesToPeerManager(ctx, metainfo, res.Addrs, peerChan)
+				interval = time.Duration(res.Interval) * time.Second
 			}
 
-			timer.Reset(d.interval)
+			timer.Reset(interval)
 		}
 	}
 }
 
-func (d *Discovery) GetPeerAddresses(ctx context.Context, url string, event string) *tracker.Response {
+func (d *Discovery) GetPeerAddresses(ctx context.Context, metainfo *torrent.MetaInfo, url, event string) *tracker.Response {
 	var res *tracker.Response
 	var err error
 
 	if strings.HasPrefix(url, "http") {
-		res, err = tracker.AnnounceHTTP(ctx, url, d.metaInfo, event)
+		res, err = tracker.AnnounceHTTP(ctx, url, metainfo, event)
 	} else {
-		res, err = tracker.AnnounceUPD(url, d.metaInfo)
+		res, err = tracker.AnnounceUPD(url, metainfo)
 	}
 
 	if err != nil || res == nil {
@@ -88,14 +83,14 @@ func (d *Discovery) GetPeerAddresses(ctx context.Context, url string, event stri
 }
 
 func (d *Discovery) emitPeerAddressesToPeerManager(
-	ctx context.Context, addrs []string, peerChan chan<- *peer.Peer) error {
+	ctx context.Context, metainfo *torrent.MetaInfo, addrs []string, peerChan chan<- *peer.Peer) error {
 
 	for _, addr := range addrs {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case peerChan <- peer.NewPeer("", addr, d.metaInfo):
+		case peerChan <- peer.NewPeer("", addr, metainfo):
 		}
 	}
 

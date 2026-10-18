@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,15 +40,18 @@ type App struct {
 
 func New() (*App, error) {
 	return &App{
-		Appid:    calculate_peer_id(),
-		managers: make(map[string]*peer.Manager),
-		cmdChan:  make(chan AppCmd, 8),
+		Appid:     calculate_peer_id(),
+		discovery: discovery.New(),
+		managers:  make(map[string]*peer.Manager),
+		cmdChan:   make(chan AppCmd, 8),
 	}, nil
 }
 
 func (a *App) Start(ctx context.Context) error {
 	a.load(ctx)
-	metricUpdate := time.NewTicker(1 * time.Second)
+	metricTicker := time.NewTicker(1 * time.Second)
+	defer metricTicker.Stop()
+
 	var preDownloaded, preUploaded int
 
 	for {
@@ -65,7 +69,7 @@ func (a *App) Start(ctx context.Context) error {
 				a.pushManager(cmd.arg)
 			}
 
-		case <-metricUpdate.C:
+		case <-metricTicker.C:
 			for _, p := range a.managers {
 				ms := p.UpdateState()
 				printStat(len(ms.PeerStat), ms.Downloaded, ms.Uploaded, 0, 0, ms.Completed, ms.Inprogress,
@@ -117,6 +121,8 @@ func (a *App) addNewManager(ctx context.Context, url string) error {
 	}
 
 	go manager.Run(ctx)
+	go a.discovery.Start(ctx, metaInfo, manager.PeerChan)
+
 	a.managers[string(metaInfo.InfoHash[:])] = manager
 	return nil
 }
@@ -132,7 +138,7 @@ func (a *App) removeManager(id string) {
 }
 
 func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
-	store, err := storage.NewFileStorage(metaInfo, OUTPUT_DIR)
+	store, err := storage.NewFileStorage(metaInfo, filepath.Join(OUTPUT_DIR, metaInfo.Name))
 	if err != nil {
 		return nil, err
 	}
