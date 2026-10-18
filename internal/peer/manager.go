@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"encoding/hex"
 	"log"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ const (
 )
 
 type Manager struct {
+	Id           string
 	PeerChan     chan *Peer
 	activePeer   map[string]*Peer
 	metaInfo     *torrent.MetaInfo
@@ -31,6 +33,7 @@ type Manager struct {
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
 	return &Manager{
+		Id:           hex.EncodeToString(metaInfo.InfoHash[:]),
 		activePeer:   make(map[string]*Peer),
 		PeerChan:     make(chan *Peer, 128),
 		metaInfo:     metaInfo,
@@ -90,7 +93,7 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 		p.Close()
 		m.removePeer(p)
 
-		if p.stat.Snapshot().Downloaded > 0 {
+		if p.stat.Snapshot().Downloaded > 0 && !p.pieceManager.Completed() {
 			go m.scheduleRefreshDeadPeer(ctx, p)
 		}
 	})
@@ -138,14 +141,10 @@ func (m *Manager) removePeer(p *Peer) {
 
 func (m *Manager) Close() {
 	m.mu.Lock()
-	peers := make([]*Peer, 0, len(m.activePeer))
-	for _, p := range m.activePeer {
-		peers = append(peers, p)
-	}
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
-	for _, p := range peers {
-		_ = p.Close()
+	for _, p := range m.activePeer {
+		p.Close()
 	}
 }
 

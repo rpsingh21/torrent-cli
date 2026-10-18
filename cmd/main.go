@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/rpsingh21/torrent-cli/internal/app"
@@ -18,8 +19,7 @@ import (
 
 func main() {
 	pprof := flag.Bool("pprof", false, "Set to enbale profiler")
-	torrentFilePath := flag.String("tf", "", "Path of torrent file")
-	magnetLink := flag.String("m", "", "Magnet link")
+	url := flag.String("tf", "", "torrent file or mannet link")
 	out := flag.String("out", "./output", "Dir where want to store downloaded files")
 	flag.Parse()
 
@@ -50,28 +50,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *torrentFilePath != "" {
-		app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
-		if err != nil {
-			log.Fatalf("Failed to start download: %v", err)
-		}
+	app, err := app.New()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		app.Start(ctx)
+	})
 
-		if err := app.Download(ctx); err != nil {
-			log.Fatalf("Download failed: %v", err)
-		}
-	} else if *magnetLink != "" {
-		app, err := app.NewAppFromMagnetLink(ctx, *magnetLink, outputDir)
-		if err != nil {
-			log.Fatalf("Failed to start download: %v", err)
-		}
+	app.Add(*url)
 
-		if err := app.Download(ctx); err != nil {
-			log.Fatalf("Download failed: %v", err)
-		}
-	} else {
-		log.Fatalf("Torrent file or Magnet link require")
-	}
-
+	wg.Wait()
 	slog.Info(fmt.Sprintf("Torrent downloaded successfully: %s", outputDir))
 
 }
