@@ -70,9 +70,11 @@ func (s *ManagerStat) updatePeerStatMap(snapMap map[string]StatSnapshot, complet
 
 		dDown := max(0, snap.Downloaded-preDownloaded)
 		dUp := max(0, snap.Uploaded-preUploaded)
+
 		downloadChange += dDown
 		uploadChange += dUp
 
+		// Calculate per-peer DownloadRate & UploadRate over elapsed window
 		if elapsed >= 0.1 {
 			snap.DownloadRate = int64(float64(dDown) / elapsed)
 			snap.UploadRate = int64(float64(dUp) / elapsed)
@@ -108,8 +110,11 @@ func (s *ManagerStat) removePeerStat(addr string, snap StatSnapshot) {
 		delete(s.PeerStat, addr)
 	}
 
-	s.Downloaded += max(0, snap.Downloaded-preDownloaded)
-	s.Uploaded += max(0, snap.Uploaded-preUploaded)
+	downloadChange := max(0, snap.Downloaded-preDownloaded)
+	uploadChange := max(0, snap.Uploaded-preUploaded)
+
+	s.Downloaded += downloadChange
+	s.Uploaded += uploadChange
 	s.TotalErr += int(snap.Errors)
 }
 
