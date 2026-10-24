@@ -1,60 +1,64 @@
 package component
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
-	"strconv"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rpsingh21/torrent-cli/internal/app"
+	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
-var (
-	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Bold(true).
-			Padding(0, 1).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderBottom(true)
+type tickMsg time.Time
+type statUpdateMsg map[string]peer.ManagerStatSnapshot
 
-	footerStyle = lipgloss.NewStyle().
-			Padding(1, 1).
-			Border(lipgloss.NormalBorder(), true, false, false, false) // Top border only
+type managerEntry struct {
+	id   string
+	snap peer.ManagerStatSnapshot
+}
 
-	itemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			PaddingLeft(2)
-)
+type peerEntry struct {
+	addr string
+	stat peer.StatSnapshot
+}
 
 type model struct {
-	items     map[string]string
+	app       *app.App
+	expandID  string // Manager ID or prefix expanded via /details <id>
+	stats     map[string]peer.ManagerStatSnapshot
+	sorted    []managerEntry // Reused slice for deterministic torrent row order
+	peerBuf   []peerEntry    // Reused slice for deterministic peer row order
 	textInput textinput.Model
 	viewport  viewport.Model
-	nextID    int
-	ready     bool // True once we get the initial terminal size
+	statusMsg string
+	ready     bool
 	width     int
 	height    int
 }
 
-func InitialModel() model {
+func InitialModel(app *app.App) model {
 	ti := textinput.New()
-	ti.Placeholder = "/add <value>, /remove <id>, /exit"
+	ti.Placeholder = "/add <magnet|file> | /details <id> | /remove <id> | /exit"
 	ti.Focus()
 	ti.Prompt = "❯ "
-	ti.CharLimit = 256
+	ti.CharLimit = 512
 
 	return model{
-		items:     make(map[string]string),
+		app:       app,
 		textInput: ti,
-		nextID:    1,
+		sorted:    make([]managerEntry, 0, 16),
+		peerBuf:   make([]peerEntry, 0, 64),
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(fetchStats(m.app), tickEverySecond())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -64,6 +68,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case tickMsg:
+		return m, tea.Batch(fetchStats(m.app), tickEverySecond())
+
+	case statUpdateMsg:
+		m.stats = msg
+		m.updateViewportContent()
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
@@ -71,19 +83,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter:
 			input := strings.TrimSpace(m.textInput.Value())
-			m.textInput.SetValue("") // Clear input
+			m.textInput.SetValue("")
 
-			if input == "/exit" {
+			if input == "/exit" || input == "/quit" {
 				return m, tea.Quit
 			} else if after, ok := strings.CutPrefix(input, "/add "); ok {
-				// val := strings.TrimPrefix(input, "/add ")
-				idStr := strconv.Itoa(m.nextID)
-				m.items[idStr] = after
-				m.nextID++
-				m.updateViewportContent()
+				arg := strings.TrimSpace(after)
+				if arg != "" {
+					m.app.Add(arg)
+					m.statusMsg = "Added: " + arg
+				}
 			} else if after, ok := strings.CutPrefix(input, "/remove "); ok {
-				// idStr := strings.TrimPrefix(input, "/remove ")
-				delete(m.items, after)
+				id := strings.TrimSpace(after)
+				if id != "" {
+					m.app.Remove(id)
+					if m.expandID != "" && (m.expandID == id || strings.HasPrefix(m.expandID, id)) {
+						m.expandID = ""
+					}
+					m.statusMsg = "Removed: " + id
+				}
+			} else if after, ok := strings.CutPrefix(input, "/details"); ok {
+				id := strings.TrimSpace(after)
+				if id == "" || m.expandID == id {
+					m.expandID = ""
+					m.statusMsg = "Collapsed peer details"
+				} else {
+					m.expandID = id
+					m.statusMsg = "Expanded details for " + id
+				}
 				m.updateViewportContent()
 			}
 			return m, nil
@@ -93,28 +120,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Calculate available height for the viewport
-		// Header height (~3 lines with borders) + Footer height (~3 lines) = 6 lines
 		headerHeight := lipgloss.Height(m.headerView())
 		footerHeight := lipgloss.Height(m.footerView())
-		viewportHeight := msg.Height - headerHeight - footerHeight
+		viewportHeight := max(1, msg.Height-headerHeight-footerHeight)
 
 		if !m.ready {
-			// Initialize the viewport on the first size message
 			m.viewport = viewport.New(msg.Width, viewportHeight)
 			m.ready = true
-			m.updateViewportContent()
 		} else {
-			// Resize existing viewport on subsequent resizes
 			m.viewport.Width = msg.Width
 			m.viewport.Height = viewportHeight
 		}
 
-		// Ensure text input spans the whole width minus prompt padding
-		m.textInput.Width = msg.Width - 4
+		m.textInput.Width = max(20, msg.Width-6)
+		m.updateViewportContent()
 	}
 
-	// Route messages to components
 	m.textInput, cmd = m.textInput.Update(msg)
 	cmds = append(cmds, cmd)
 
@@ -124,47 +145,172 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// updateViewportContent refreshes the scrollable list data
 func (m *model) updateViewportContent() {
 	if !m.ready {
 		return
 	}
 
-	var b strings.Builder
+	if len(m.stats) == 0 {
+		m.viewport.SetContent(emptyStateStyle.Render(
+			"\n  No active downloads. Type /add <magnet-uri | .torrent> below.\n",
+		))
+		return
+	}
 
-	if len(m.items) == 0 {
-		b.WriteString("\n  (Map is empty. Type /add <value> below)\n")
-	} else {
-		// Sort keys to maintain UI stability
-		keys := make([]int, 0, len(m.items))
-		for k := range m.items {
-			id, _ := strconv.Atoi(k)
-			keys = append(keys, id)
+	// Reuse slice capacity
+	m.sorted = m.sorted[:0]
+	for id, snap := range m.stats {
+		m.sorted = append(m.sorted, managerEntry{id: id, snap: snap})
+	}
+
+	// Sort deterministically by StartAt, then by ID
+	slices.SortFunc(m.sorted, func(a, b managerEntry) int {
+		if c := a.snap.StartAt.Compare(b.snap.StartAt); c != 0 {
+			return c
 		}
-		sort.Ints(keys)
+		return cmp.Compare(a.id, b.id)
+	})
 
-		for _, k := range keys {
-			idStr := strconv.Itoa(k)
-			// Truncate long strings to prevent wrapping based on terminal width
-			line := fmt.Sprintf("[%s] %s", idStr, m.items[idStr])
-			if len(line) > m.width-4 {
-				line = line[:m.width-7] + "..."
-			}
-			b.WriteString(itemStyle.Render(line + "\n"))
+	var b strings.Builder
+	b.Grow(len(m.sorted) * 256)
+
+	headerLine := fmt.Sprintf("  %-10s %-24s %-11s %-12s %-11s %-12s %-18s",
+		"ID", "NAME", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "DONE / INPROG",
+	)
+	b.WriteString(tblHeaderStyle.Render(headerLine))
+	b.WriteByte('\n')
+
+	for _, entry := range m.sorted {
+		snap := entry.snap
+
+		// Display 8-char short ID for readability while matching full or prefix ID
+		shortID := entry.id
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+
+		name := shortID
+		if snap.MetaInfo != nil && snap.MetaInfo.Name != "" {
+			name = snap.MetaInfo.Name
+		}
+
+		isExpanded := m.expandID != "" && (entry.id == m.expandID || strings.HasPrefix(entry.id, m.expandID))
+		icon := "▸ "
+		idCol := rowIDStyle.Render(padRight(shortID, 10))
+		if isExpanded {
+			icon = "▾ "
+			idCol = rowSelectedStyle.Render(padRight(shortID, 10))
+		}
+
+		piecesStr := fmt.Sprintf("%d / %d", snap.Completed, snap.Inprogress)
+
+		b.WriteString(icon)
+		b.WriteString(idCol)
+		b.WriteByte(' ')
+		b.WriteString(rowNameStyle.Render(padRight(name, 24)))
+		b.WriteByte(' ')
+		b.WriteString(metricStyle.Render(padRight(formatBytes(int64(snap.Downloaded)), 11)))
+		b.WriteByte(' ')
+		b.WriteString(downSpeedStyle.Render(padRight(formatSpeed(snap.DownloadRate), 12)))
+		b.WriteByte(' ')
+		b.WriteString(metricStyle.Render(padRight(formatBytes(int64(snap.Uploaded)), 11)))
+		b.WriteByte(' ')
+		b.WriteString(upSpeedStyle.Render(padRight(formatSpeed(snap.UploadRate), 12)))
+		b.WriteByte(' ')
+		b.WriteString(progressStyle.Render(padRight(piecesStr, 18)))
+		b.WriteByte('\n')
+
+		if isExpanded {
+			m.renderChildPeerTable(&b, snap.PeerStat)
 		}
 	}
 
 	m.viewport.SetContent(b.String())
-	m.viewport.GotoBottom() // Auto-scroll to the latest items like a chat CLI
+}
+
+func (m *model) renderChildPeerTable(b *strings.Builder, peers map[string]peer.StatSnapshot) {
+	if len(peers) == 0 {
+		b.WriteString(peerTreeStyle.Render("  ╰─ "))
+		b.WriteString(emptyStateStyle.Render("Waiting for active peers..."))
+		b.WriteString("\n\n")
+		return
+	}
+
+	m.peerBuf = m.peerBuf[:0]
+	for addr, st := range peers {
+		m.peerBuf = append(m.peerBuf, peerEntry{addr: addr, stat: st})
+	}
+
+	slices.SortFunc(m.peerBuf, func(a, b peerEntry) int {
+		if c := cmp.Compare(b.stat.DownloadRate, a.stat.DownloadRate); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.addr, b.addr)
+	})
+
+	subHeader := fmt.Sprintf("%-22s %-11s %-12s %-11s %-12s %-16s %-10s",
+		"PEER ADDRESS", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "REQ (DONE/SENT)", "ERR / TO",
+	)
+	b.WriteString(peerTreeStyle.Render("  ├─ "))
+	b.WriteString(peerHeaderStyle.Render(subHeader))
+	b.WriteByte('\n')
+
+	for i, p := range m.peerBuf {
+		branch := "  ├─ "
+		if i == len(m.peerBuf)-1 {
+			branch = "  ╰─ "
+		}
+
+		reqInfo := fmt.Sprintf("%d / %d", p.stat.RequestsCompleted, p.stat.RequestsSent)
+		errInfo := fmt.Sprintf("%d / %d", p.stat.Errors, p.stat.Timeouts)
+
+		b.WriteString(peerTreeStyle.Render(branch))
+		b.WriteString(peerRowStyle.Render(padRight(p.addr, 22)))
+		b.WriteByte(' ')
+		b.WriteString(peerRowStyle.Render(padRight(formatBytes(p.stat.Downloaded), 11)))
+		b.WriteByte(' ')
+		b.WriteString(downSpeedStyle.Render(padRight(formatSpeed(p.stat.DownloadRate), 12)))
+		b.WriteByte(' ')
+		b.WriteString(peerRowStyle.Render(padRight(formatBytes(p.stat.Uploaded), 11)))
+		b.WriteByte(' ')
+		b.WriteString(upSpeedStyle.Render(padRight(formatSpeed(p.stat.UploadRate), 12)))
+		b.WriteByte(' ')
+		b.WriteString(peerRowStyle.Render(padRight(reqInfo, 16)))
+		b.WriteByte(' ')
+		if p.stat.Errors > 0 || p.stat.Timeouts > 0 {
+			b.WriteString(peerErrStyle.Render(padRight(errInfo, 10)))
+		} else {
+			b.WriteString(peerRowStyle.Render(padRight(errInfo, 10)))
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
 }
 
 func (m model) headerView() string {
-	title := headerStyle.Width(m.width).Render("🚀 B-TUI")
-	return title
+	var totalDown, totalUp int64
+	for _, s := range m.stats {
+		totalDown += s.DownloadRate
+		totalUp += s.UploadRate
+	}
+
+	left := "⚡ TORRENT-CLI"
+	right := fmt.Sprintf("ACTIVE: %d   ↓ %s   ↑ %s",
+		len(m.stats), formatSpeed(totalDown), formatSpeed(totalUp),
+	)
+
+	space := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(right)-4)
+	return headerStyle.Width(m.width).Render(left + strings.Repeat(" ", space) + right)
 }
 
 func (m model) footerView() string {
-	return footerStyle.Width(m.width).Render(m.textInput.View())
+	helpLine := "Commands: /add <magnet|file> • /details <id> (toggle peers) • /remove <id> • /exit"
+	if m.statusMsg != "" {
+		helpLine = m.statusMsg + "  |  " + helpLine
+	}
+	return footerStyle.Width(m.width).Render(
+		m.textInput.View() + "\n" + helpStyle.Render(helpLine),
+	)
 }
 
 func (m model) View() string {
@@ -172,11 +318,22 @@ func (m model) View() string {
 		return "\n  Initializing full-screen view..."
 	}
 
-	// Join the Header, Viewport (Middle), and Footer vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.headerView(),
 		m.viewport.View(),
 		m.footerView(),
 	)
+}
+
+func fetchStats(a *app.App) tea.Cmd {
+	return func() tea.Msg {
+		return statUpdateMsg(a.GetUpdatedManagerStat())
+	}
+}
+
+func tickEverySecond() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/rpsingh21/torrent-cli/internal/app"
+	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
 func main() {
@@ -52,8 +53,16 @@ func main() {
 
 	app, err := app.New()
 	var wg sync.WaitGroup
+
+	statChan := make(chan peer.ManagerStatSnapshot)
+	defer close(statChan)
+
 	wg.Go(func() {
 		app.Start(ctx)
+	})
+
+	wg.Go(func() {
+		readSrat(ctx, statChan)
 	})
 
 	app.Add(*url)
@@ -83,6 +92,7 @@ func setupLogger(env string) *slog.Logger {
 		handler = slog.NewTextHandler(os.Stdout, opts) // Or io.Discard
 
 	default:
+		os.Remove("dev.log")
 		file, err := os.OpenFile("dev.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			log.Fatalf("failed to open log file: %v", err)
@@ -99,4 +109,40 @@ func setupLogger(env string) *slog.Logger {
 	}
 
 	return slog.New(handler)
+}
+
+const mib = 1 << 20
+const kib = 1 << 10
+
+func readSrat(ctx context.Context, ch <-chan peer.ManagerStatSnapshot) {
+	var preDownloaded, preUploaded int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ms := <-ch:
+			printStat(len(ms.PeerStat), ms.Downloaded, ms.Uploaded, 0, 0, ms.Completed, ms.Inprogress,
+				ms.Downloaded-preDownloaded, ms.Uploaded-preUploaded)
+			preDownloaded = ms.Downloaded
+			preUploaded = ms.Uploaded
+		}
+	}
+
+}
+
+func printStat(totalPeer int, downloaded, uploaded, totalReqs, totalErrs int64, completed, inprogress int, dr, ur int64) {
+
+	fmt.Printf(
+		"\r\033[KTotalPeer: %v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v]",
+		totalPeer,
+		float64(downloaded)/mib,
+		float64(dr)/mib,
+		float64(uploaded)/mib,
+		float64(ur)/kib,
+		totalReqs,
+		totalErrs,
+		completed,
+		inprogress,
+	)
 }

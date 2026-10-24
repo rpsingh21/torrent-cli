@@ -39,6 +39,7 @@ func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerC
 
 		case <-timer.C:
 			var res *tracker.Response
+			var prs []string
 
 			for _, url := range metainfo.AnnounceList {
 				log.Printf("starting getting peer from: %v", url)
@@ -51,12 +52,13 @@ func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerC
 				}
 
 				if res != nil {
-					break
+					// break
+					prs = append(prs, res.Addrs...)
 				}
 			}
 
-			if res != nil {
-				d.emitPeerAddressesToPeerManager(ctx, metainfo, res.Addrs, peerChan)
+			if prs != nil {
+				d.emitPeerAddressesToPeerManager(ctx, metainfo, prs, peerChan)
 				interval = time.Duration(res.Interval) * time.Second
 			}
 
@@ -86,6 +88,10 @@ func (d *Discovery) emitPeerAddressesToPeerManager(
 	ctx context.Context, metainfo *torrent.MetaInfo, addrs []string, peerChan chan<- *peer.Peer) error {
 
 	for _, addr := range addrs {
+		if addr == "0.0.0.0:0" {
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

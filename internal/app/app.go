@@ -52,7 +52,7 @@ func (a *App) Start(ctx context.Context) error {
 	metricTicker := time.NewTicker(1 * time.Second)
 	defer metricTicker.Stop()
 
-	var preDownloaded, preUploaded int
+	// var preDownloaded, preUploaded int
 
 	for {
 		select {
@@ -69,14 +69,6 @@ func (a *App) Start(ctx context.Context) error {
 				a.pushManager(cmd.arg)
 			}
 
-		case <-metricTicker.C:
-			for _, p := range a.managers {
-				ms := p.UpdateState()
-				printStat(len(ms.PeerStat), ms.Downloaded, ms.Uploaded, 0, 0, ms.Completed, ms.Inprogress,
-					ms.Downloaded-preDownloaded, ms.Uploaded-preUploaded)
-				preDownloaded = ms.Downloaded
-				preUploaded = ms.Uploaded
-			}
 		}
 	}
 }
@@ -91,6 +83,17 @@ func (a *App) Push(id string) {
 
 func (a *App) Remove(id string) {
 	a.cmdChan <- AppCmd{id: ADD, arg: id}
+}
+
+func (a *App) GetUpdatedManagerStat() map[string]peer.ManagerStatSnapshot {
+	// a.mu.RLock()
+	// defer a.mu.RUnlock()
+
+	statManager := make(map[string]peer.ManagerStatSnapshot, len(a.managers))
+	for _, p := range a.managers {
+		statManager[p.Id] = p.UpdateState()
+	}
+	return statManager
 }
 
 func (a *App) Close() {
@@ -127,14 +130,21 @@ func (a *App) addNewManager(ctx context.Context, url string) error {
 	return nil
 }
 
-func (a *App) pushManager(id string) {
+func (a *App) pushManager(id string) error {
 	// Todo imp later
+	log.Printf("pushed manager (debug only): %v", id)
+	return nil
 }
 
-func (a *App) removeManager(id string) {
-	a.managers[id].Close()
+func (a *App) removeManager(id string) error {
+	m, ok := a.managers[id]
+	if !ok {
+		return fmt.Errorf("Manager id doesn't found")
+	}
 
+	m.Close()
 	delete(a.managers, id)
+	return nil
 }
 
 func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
@@ -165,23 +175,4 @@ func getMetaInfo(ctx context.Context, url string) (*torrent.MetaInfo, error) {
 	}
 
 	return torrent.NewTorrentDetailFromFile(url)
-}
-
-const mib = 1 << 20
-const kib = 1 << 10
-
-func printStat(totalPeer, downloaded, uploaded, totalReqs, totalErrs, completed, inprogress, dr, ur int) {
-
-	fmt.Printf(
-		"\r\033[KTotalPeer: %v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v]",
-		totalPeer,
-		float64(downloaded)/mib,
-		float64(dr)/mib,
-		float64(uploaded)/mib,
-		float64(ur)/kib,
-		totalReqs,
-		totalErrs,
-		completed,
-		inprogress,
-	)
 }
