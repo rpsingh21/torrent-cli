@@ -11,15 +11,16 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/rpsingh21/torrent-cli/internal/app"
+	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
 func main() {
 	pprof := flag.Bool("pprof", false, "Set to enbale profiler")
-	torrentFilePath := flag.String("tf", "", "Path of torrent file")
-	magnetLink := flag.String("m", "", "Magnet link")
+	url := flag.String("tf", "", "torrent file or mannet link")
 	out := flag.String("out", "./output", "Dir where want to store downloaded files")
 	flag.Parse()
 
@@ -50,28 +51,23 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *torrentFilePath != "" {
-		app, err := app.NewAppFromTorrentFile(*torrentFilePath, outputDir)
-		if err != nil {
-			log.Fatalf("Failed to start download: %v", err)
-		}
+	app, err := app.New()
+	var wg sync.WaitGroup
 
-		if err := app.Download(ctx); err != nil {
-			log.Fatalf("Download failed: %v", err)
-		}
-	} else if *magnetLink != "" {
-		app, err := app.NewAppFromMagnetLink(ctx, *magnetLink, outputDir)
-		if err != nil {
-			log.Fatalf("Failed to start download: %v", err)
-		}
+	statChan := make(chan peer.ManagerStatSnapshot)
+	defer close(statChan)
 
-		if err := app.Download(ctx); err != nil {
-			log.Fatalf("Download failed: %v", err)
-		}
-	} else {
-		log.Fatalf("Torrent file or Magnet link require")
-	}
+	wg.Go(func() {
+		app.Start(ctx)
+	})
 
+	wg.Go(func() {
+		readSrat(ctx, statChan)
+	})
+
+	app.Add(*url)
+
+	wg.Wait()
 	slog.Info(fmt.Sprintf("Torrent downloaded successfully: %s", outputDir))
 
 }
@@ -96,6 +92,7 @@ func setupLogger(env string) *slog.Logger {
 		handler = slog.NewTextHandler(os.Stdout, opts) // Or io.Discard
 
 	default:
+		os.Remove("dev.log")
 		file, err := os.OpenFile("dev.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			log.Fatalf("failed to open log file: %v", err)
@@ -112,4 +109,40 @@ func setupLogger(env string) *slog.Logger {
 	}
 
 	return slog.New(handler)
+}
+
+const mib = 1 << 20
+const kib = 1 << 10
+
+func readSrat(ctx context.Context, ch <-chan peer.ManagerStatSnapshot) {
+	var preDownloaded, preUploaded int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ms := <-ch:
+			printStat(len(ms.PeerStat), ms.Downloaded, ms.Uploaded, 0, 0, ms.Completed, ms.Inprogress,
+				ms.Downloaded-preDownloaded, ms.Uploaded-preUploaded)
+			preDownloaded = ms.Downloaded
+			preUploaded = ms.Uploaded
+		}
+	}
+
+}
+
+func printStat(totalPeer int, downloaded, uploaded, totalReqs, totalErrs int64, completed, inprogress int, dr, ur int64) {
+
+	fmt.Printf(
+		"\r\033[KTotalPeer: %v [Downloaded: %.2f MiB | Speed: %.2f MiB/s] [Uploaded: %.2f MiB | Speed: %.2f KiB/s] TotalReq: %v | Errors: %v [Pieces: %v | %v]",
+		totalPeer,
+		float64(downloaded)/mib,
+		float64(dr)/mib,
+		float64(uploaded)/mib,
+		float64(ur)/kib,
+		totalReqs,
+		totalErrs,
+		completed,
+		inprogress,
+	)
 }

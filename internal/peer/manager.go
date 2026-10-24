@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"encoding/hex"
 	"log"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ const (
 )
 
 type Manager struct {
+	Id           string
 	PeerChan     chan *Peer
 	activePeer   map[string]*Peer
 	metaInfo     *torrent.MetaInfo
@@ -27,10 +29,12 @@ type Manager struct {
 	mu           sync.Mutex
 	refreshMap   map[string]time.Duration
 	MStat        *ManagerStat
+	cancel       context.CancelFunc
 }
 
 func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manager {
 	return &Manager{
+		Id:           hex.EncodeToString(metaInfo.InfoHash[:]),
 		activePeer:   make(map[string]*Peer),
 		PeerChan:     make(chan *Peer, 128),
 		metaInfo:     metaInfo,
@@ -40,13 +44,19 @@ func NewManager(metaInfo *torrent.MetaInfo, pieceManager *piece.Manager) *Manage
 	}
 }
 
-func (m *Manager) Run(ctx context.Context) error {
+func (m *Manager) Run(parentCtx context.Context) error {
+	ctx, cancel := context.WithCancel(parentCtx)
+	m.mu.Lock()
+	m.cancel = cancel
+	m.mu.Unlock()
+	defer cancel()
+
 	var wg sync.WaitGroup
 
 	for {
 		select {
 		case <-ctx.Done():
-			m.Close()
+			m.closeActivePeers()
 			wg.Wait()
 			return ctx.Err()
 
@@ -60,15 +70,16 @@ func (m *Manager) Run(ctx context.Context) error {
 }
 
 func (m *Manager) UpdateState() ManagerStatSnapshot {
-	preSnapshot := make(map[string]StatSnapshot)
+	completed, inprogress := m.pieceManager.GetStat()
+
 	m.mu.Lock()
+	preSnapshot := make(map[string]StatSnapshot, len(m.activePeer))
 	for _, v := range m.activePeer {
 		preSnapshot[v.Addr] = v.stat.Snapshot()
 	}
+	m.MStat.updatePeerStatMap(preSnapshot, completed, max(0, inprogress-completed))
 	m.mu.Unlock()
 
-	completed, inprogress := m.pieceManager.GetStat()
-	m.MStat.updatePeerStatMap(preSnapshot, completed, inprogress-completed)
 	return m.MStat.Snapshot()
 }
 
@@ -78,20 +89,26 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 		m.mu.Unlock()
 		return
 	}
-	// p.metaInfo = m.metaInfo
 	p.pieceManager = m.pieceManager
 	m.activePeer[p.Addr] = p
 	m.mu.Unlock()
 
 	wg.Go(func() {
-		if err := p.Start(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), p.stat.Snapshot().Downloaded/1024)
-		}
+		err := p.Start(ctx)
 		p.Close()
-		m.removePeer(p)
 
-		if p.stat.Snapshot().Downloaded > 0 {
-			go m.scheduleRefreshDeadPeer(ctx, p)
+		// Capture final snapshot once before removing and potentially resetting
+		finalSnap := p.stat.Snapshot()
+		if err != nil && ctx.Err() == nil {
+			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), finalSnap.Downloaded/1024)
+		}
+
+		m.removePeer(p, finalSnap)
+
+		if ctx.Err() == nil && finalSnap.Downloaded > 0 && !p.pieceManager.Completed() {
+			wg.Go(func() {
+				m.scheduleRefreshDeadPeer(ctx, p)
+			})
 		}
 	})
 }
@@ -102,7 +119,6 @@ func (m *Manager) scheduleRefreshDeadPeer(ctx context.Context, p *Peer) {
 	if !ok {
 		d = 1 * time.Minute
 	}
-
 	m.refreshMap[p.Addr] = d << 1
 	m.mu.Unlock()
 
@@ -118,35 +134,50 @@ func (m *Manager) scheduleRefreshDeadPeer(ctx context.Context, p *Peer) {
 	case <-ctx.Done():
 		return
 	case <-timer.C:
+		if m.pieceManager.Completed() {
+			return
+		}
 		log.Printf("reconnecting peer %v after %v", p.Addr, d)
-		m.PeerChan <- p
+		p.stat.Reset() // Prevent double-counting previous session's bytes
+
+		select {
+		case m.PeerChan <- p:
+		case <-ctx.Done():
+		}
 	}
 }
 
-func (m *Manager) removePeer(p *Peer) {
+func (m *Manager) removePeer(p *Peer, finalSnap StatSnapshot) {
 	if p == nil {
 		return
 	}
 
-	m.MStat.updatePeerStat(p.Addr, p.stat.Snapshot())
 	m.mu.Lock()
 	delete(m.activePeer, p.Addr)
+	m.MStat.removePeerStat(p.Addr, finalSnap)
 	m.mu.Unlock()
 
 	m.pieceManager.RemovePeer(p.Addr)
 }
 
+func (m *Manager) closeActivePeers() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, p := range m.activePeer {
+		p.Close()
+	}
+}
+
 func (m *Manager) Close() {
 	m.mu.Lock()
-	peers := make([]*Peer, 0, len(m.activePeer))
-	for _, p := range m.activePeer {
-		peers = append(peers, p)
-	}
+	cancel := m.cancel
 	m.mu.Unlock()
 
-	for _, p := range peers {
-		_ = p.Close()
+	if cancel != nil {
+		cancel()
 	}
+	m.closeActivePeers()
 }
 
 func (m *Manager) ActivePeers() int {

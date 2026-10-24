@@ -1,22 +1,18 @@
 package peer
 
-import (
-	"sync"
-)
+import "sync/atomic"
 
 type Stat struct {
-	mu sync.Mutex
+	DownloadRate atomic.Int64
+	UploadRate   atomic.Int64
 
-	DownloadRate int64
-	UploadRate   int64
+	Downloaded atomic.Int64
+	Uploaded   atomic.Int64
 
-	Downloaded int64
-	Uploaded   int64
-
-	RequestsSent      int64
-	RequestsCompleted int64
-	Timeouts          int64
-	Errors            int64
+	RequestsSent      atomic.Int64
+	RequestsCompleted atomic.Int64
+	Timeouts          atomic.Int64
+	Errors            atomic.Int64
 }
 
 type StatSnapshot struct {
@@ -32,57 +28,36 @@ type StatSnapshot struct {
 	Errors            int64
 }
 
-func (s *Stat) AddDownloaded(n int) {
-	s.mu.Lock()
-	s.Downloaded += int64(n)
-	s.mu.Unlock()
-}
+func (s *Stat) AddDownloaded(n int)         { s.Downloaded.Add(int64(n)) }
+func (s *Stat) AddUploaded(n int)           { s.Uploaded.Add(int64(n)) }
+func (s *Stat) IncRequestsSent()            { s.RequestsSent.Add(1) }
+func (s *Stat) IncRequestsCompleted()       { s.RequestsCompleted.Add(1) }
+func (s *Stat) IncTimeouts()                { s.Timeouts.Add(1) }
+func (s *Stat) IncErrors()                  { s.Errors.Add(1) }
+func (s *Stat) GetRequestsCompleted() int64 { return s.RequestsCompleted.Load() }
 
-func (s *Stat) GetRequestsCompleted() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.RequestsCompleted
-}
-
-func (s *Stat) AddUploaded(n int) {
-	s.mu.Lock()
-	s.Uploaded += int64(n)
-	s.mu.Unlock()
-}
-
-func (s *Stat) IncRequestsSent() {
-	s.mu.Lock()
-	s.RequestsSent++
-	s.mu.Unlock()
-}
-
-func (s *Stat) IncRequestsCompleted() {
-	s.mu.Lock()
-	s.RequestsCompleted++
-	s.mu.Unlock()
-}
-
-func (s *Stat) IncTimeouts() {
-	s.mu.Lock()
-	s.Timeouts++
-	s.mu.Unlock()
+// Reset clears session counters before reconnecting a dead peer so historical
+// bytes already accounted for in ManagerStat are not double-counted.
+func (s *Stat) Reset() {
+	s.DownloadRate.Store(0)
+	s.UploadRate.Store(0)
+	s.Downloaded.Store(0)
+	s.Uploaded.Store(0)
+	s.RequestsSent.Store(0)
+	s.RequestsCompleted.Store(0)
+	s.Timeouts.Store(0)
+	s.Errors.Store(0)
 }
 
 func (s *Stat) Snapshot() StatSnapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	return StatSnapshot{
-		DownloadRate: s.DownloadRate,
-		UploadRate:   s.UploadRate,
-
-		Downloaded: s.Downloaded,
-		Uploaded:   s.Uploaded,
-
-		RequestsSent:      s.RequestsSent,
-		RequestsCompleted: s.RequestsCompleted,
-		Timeouts:          s.Timeouts,
-		Errors:            s.Errors,
+		DownloadRate:      s.DownloadRate.Load(),
+		UploadRate:        s.UploadRate.Load(),
+		Downloaded:        s.Downloaded.Load(),
+		Uploaded:          s.Uploaded.Load(),
+		RequestsSent:      s.RequestsSent.Load(),
+		RequestsCompleted: s.RequestsCompleted.Load(),
+		Timeouts:          s.Timeouts.Load(),
+		Errors:            s.Errors.Load(),
 	}
 }
