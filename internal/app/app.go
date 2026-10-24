@@ -3,10 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/discovery"
 	"github.com/rpsingh21/torrent-cli/internal/peer"
@@ -15,137 +14,186 @@ import (
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
-const MAX_PIECE_SIZE = 256 << 20
-const OUTPUT_DIR = "./output/"
-
-type AppCMDId uint8
-
 const (
-	ADD AppCMDId = iota
-	REMOVE
-	PUSH
+	MAX_PIECE_SIZE = 256 << 20
+	OUTPUT_DIR     = "./output/"
 )
 
-type AppCmd struct {
-	id  AppCMDId
-	arg string
+type managedTorrent struct {
+	manager *peer.Manager
+	cancel  context.CancelFunc
+	paused  bool
 }
 
 type App struct {
 	Appid     [20]byte
 	discovery *discovery.Discovery
-	managers  map[string]*peer.Manager
-	cmdChan   chan AppCmd
+
+	mu       sync.RWMutex
+	ctx      context.Context
+	managers map[string]*managedTorrent
 }
 
 func New() (*App, error) {
 	return &App{
 		Appid:     calculate_peer_id(),
 		discovery: discovery.New(),
-		managers:  make(map[string]*peer.Manager),
-		cmdChan:   make(chan AppCmd, 8),
+		managers:  make(map[string]*managedTorrent),
+		ctx:       context.Background(),
 	}, nil
 }
 
 func (a *App) Start(ctx context.Context) error {
+	a.mu.Lock()
+	a.ctx = ctx
+	a.mu.Unlock()
+
 	a.load(ctx)
-	metricTicker := time.NewTicker(1 * time.Second)
-	defer metricTicker.Stop()
 
-	// var preDownloaded, preUploaded int
+	<-ctx.Done()
+	a.Close()
+	return ctx.Err()
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
+func (a *App) Add(url string) (string, string, error) {
+	a.mu.RLock()
+	baseCtx := a.ctx
+	a.mu.RUnlock()
 
-		case cmd := <-a.cmdChan:
-			switch cmd.id {
-			case ADD:
-				a.addNewManager(ctx, cmd.arg)
-			case REMOVE:
-				a.removeManager(cmd.arg)
-			case PUSH:
-				a.pushManager(cmd.arg)
-			}
+	metaInfo, err := getMetaInfo(baseCtx, url)
+	if err != nil {
+		return "", "", fmt.Errorf("decode metainfo: %w", err)
+	}
 
+	manager, err := createManager(metaInfo)
+	if err != nil {
+		return "", "", fmt.Errorf("create manager: %w", err)
+	}
+
+	tCtx, cancel := context.WithCancel(baseCtx)
+
+	a.mu.Lock()
+	if _, exists := a.managers[manager.Id]; exists {
+		a.mu.Unlock()
+		cancel()
+		return "", "", fmt.Errorf("torrent %s already exists", manager.Id[:8])
+	}
+	a.managers[manager.Id] = &managedTorrent{
+		manager: manager,
+		cancel:  cancel,
+		paused:  false,
+	}
+	a.mu.Unlock()
+
+	go manager.Run(tCtx)
+	go a.discovery.Start(tCtx, metaInfo, manager.PeerChan)
+
+	return manager.Id[:8], metaInfo.Name, nil
+}
+
+func (a *App) Pause(idPrefix string) (string, error) {
+	a.mu.Lock()
+	fullID, entry := a.findLocked(idPrefix)
+	if entry == nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("manager id %q not found", idPrefix)
+	}
+	if entry.paused {
+		a.mu.Unlock()
+		return "", fmt.Errorf("manager %s is already paused", fullID[:8])
+	}
+	entry.paused = true
+	cancel := entry.cancel
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	entry.manager.Close()
+	return fullID[:8], nil
+}
+
+func (a *App) Resume(idPrefix string) (string, error) {
+	a.mu.Lock()
+	fullID, entry := a.findLocked(idPrefix)
+	if entry == nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("manager id %q not found", idPrefix)
+	}
+	if !entry.paused {
+		a.mu.Unlock()
+		return "", fmt.Errorf("manager %s is already running", fullID[:8])
+	}
+
+	tCtx, cancel := context.WithCancel(a.ctx)
+	entry.cancel = cancel
+	entry.paused = false
+	metaInfo := entry.manager.MStat.MetaInfo
+	a.mu.Unlock()
+
+	go entry.manager.Run(tCtx)
+	if metaInfo != nil {
+		go a.discovery.Start(tCtx, metaInfo, entry.manager.PeerChan)
+	}
+	return fullID[:8], nil
+}
+
+func (a *App) Remove(idPrefix string) (string, error) {
+	a.mu.Lock()
+	fullID, entry := a.findLocked(idPrefix)
+	if entry != nil {
+		delete(a.managers, fullID)
+	}
+	a.mu.Unlock()
+
+	if entry == nil {
+		return "", fmt.Errorf("manager id %q not found", idPrefix)
+	}
+
+	if entry.cancel != nil {
+		entry.cancel()
+	}
+	entry.manager.Close()
+	return fullID[:8], nil
+}
+
+func (a *App) findLocked(idPrefix string) (string, *managedTorrent) {
+	if idPrefix == "" {
+		return "", nil
+	}
+	for fullID, mt := range a.managers {
+		if fullID == idPrefix || strings.HasPrefix(fullID, idPrefix) {
+			return fullID, mt
 		}
 	}
-}
-
-func (a *App) Add(url string) {
-	a.cmdChan <- AppCmd{id: ADD, arg: url}
-}
-
-func (a *App) Push(id string) {
-	a.cmdChan <- AppCmd{id: ADD, arg: id}
-}
-
-func (a *App) Remove(id string) {
-	a.cmdChan <- AppCmd{id: ADD, arg: id}
+	return "", nil
 }
 
 func (a *App) GetUpdatedManagerStat() map[string]peer.ManagerStatSnapshot {
-	// a.mu.RLock()
-	// defer a.mu.RUnlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
 	statManager := make(map[string]peer.ManagerStatSnapshot, len(a.managers))
-	for _, p := range a.managers {
-		statManager[p.Id] = p.UpdateState()
+	for id, entry := range a.managers {
+		statManager[id] = entry.manager.UpdateState()
 	}
 	return statManager
 }
 
 func (a *App) Close() {
-	close(a.cmdChan)
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-	for _, v := range a.managers {
-		v.Close()
+	for id, entry := range a.managers {
+		if entry.cancel != nil {
+			entry.cancel()
+		}
+		entry.manager.Close()
+		delete(a.managers, id)
 	}
 }
 
-// Load old config.
-// Load old comoleted or inprocress torrent.
-func (a *App) load(ctx context.Context) {
-	// Todo: will imp
-}
-
-func (a *App) addNewManager(ctx context.Context, url string) error {
-	metaInfo, err := getMetaInfo(ctx, url)
-	if err != nil {
-		log.Printf("metainfo decoing is failed: %v", url)
-		return err
-	}
-
-	manager, err := createManager(metaInfo)
-	if err != nil {
-		log.Printf("failed to create manager for %v", url)
-		return err
-	}
-
-	go manager.Run(ctx)
-	go a.discovery.Start(ctx, metaInfo, manager.PeerChan)
-
-	a.managers[string(metaInfo.InfoHash[:])] = manager
-	return nil
-}
-
-func (a *App) pushManager(id string) error {
-	// Todo imp later
-	log.Printf("pushed manager (debug only): %v", id)
-	return nil
-}
-
-func (a *App) removeManager(id string) error {
-	m, ok := a.managers[id]
-	if !ok {
-		return fmt.Errorf("Manager id doesn't found")
-	}
-
-	m.Close()
-	delete(a.managers, id)
-	return nil
-}
+func (a *App) load(ctx context.Context) {}
 
 func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
 	store, err := storage.NewFileStorage(metaInfo, filepath.Join(OUTPUT_DIR, metaInfo.Name))
@@ -154,16 +202,13 @@ func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
 	}
 
 	pieceManager := piece.NewManager(metaInfo, piece.StrategySequential, store)
-	peerManager := peer.NewManager(metaInfo, pieceManager)
-
-	return peerManager, nil
+	return peer.NewManager(metaInfo, pieceManager), nil
 }
 
 func getMetaInfo(ctx context.Context, url string) (*torrent.MetaInfo, error) {
 	if strings.HasPrefix(url, "magnet") {
 		metaInfo, err := torrent.MetaInfoFromMagnetURL(url)
 		if err != nil {
-			log.Printf("failed to decode metaurl: %v", url)
 			return nil, err
 		}
 
