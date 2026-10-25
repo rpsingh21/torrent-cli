@@ -19,7 +19,6 @@ import (
 type managedTorrent struct {
 	manager *peer.Manager
 	cancel  context.CancelFunc
-	paused  bool
 }
 
 type App struct {
@@ -80,7 +79,6 @@ func (a *App) Add(url string) (string, string, error) {
 	a.managers[manager.Id] = &managedTorrent{
 		manager: manager,
 		cancel:  cancel,
-		paused:  false,
 	}
 	a.mu.Unlock()
 
@@ -97,11 +95,11 @@ func (a *App) Pause(idPrefix string) (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("manager id %q not found", idPrefix)
 	}
-	if entry.paused {
+	if entry.manager.MStat.IsPausedd() {
 		a.mu.Unlock()
 		return "", fmt.Errorf("manager %s is already paused", fullID[:8])
 	}
-	entry.paused = true
+	entry.manager.MStat.UpdatePaused(true)
 	cancel := entry.cancel
 	a.mu.Unlock()
 
@@ -119,14 +117,14 @@ func (a *App) Resume(idPrefix string) (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("manager id %q not found", idPrefix)
 	}
-	if !entry.paused {
+	if !entry.manager.MStat.IsPausedd() {
 		a.mu.Unlock()
 		return "", fmt.Errorf("manager %s is already running", fullID[:8])
 	}
 
 	tCtx, cancel := context.WithCancel(a.ctx)
 	entry.cancel = cancel
-	entry.paused = false
+	entry.manager.MStat.UpdatePaused(false)
 	metaInfo := entry.manager.MStat.MetaInfo
 	a.mu.Unlock()
 

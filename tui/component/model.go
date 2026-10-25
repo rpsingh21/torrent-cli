@@ -210,13 +210,11 @@ func (m *model) updateViewportContent() {
 		return
 	}
 
-	// Reuse slice capacity
 	m.sorted = m.sorted[:0]
 	for id, snap := range m.stats {
 		m.sorted = append(m.sorted, managerEntry{id: id, snap: snap})
 	}
 
-	// Sort deterministically by StartAt, then by ID
 	slices.SortFunc(m.sorted, func(a, b managerEntry) int {
 		if c := a.snap.StartAt.Compare(b.snap.StartAt); c != 0 {
 			return c
@@ -224,16 +222,20 @@ func (m *model) updateViewportContent() {
 		return cmp.Compare(a.id, b.id)
 	})
 
-	// Dynamically size NAME column so UP and ↑ SPEED never clip on 80-col terminals
-	// Fixed columns take ~72 chars total: ID(8) + DOWN(10) + ↓SPEED(11) + UP(10) + ↑SPEED(11) + PIECES(13) + spaces
-	nameWidth := min(30, max(12, m.width-74))
+	// Fixed layout budget: 101 characters (excluding nameWidth)
+	// 2(Icon) + 8(ID) + 10(DN) + 11(D_SPD) + 10(UP) + 11(U_SPD) + 13(PCS) + 20(BAR) + 7(PCT) + 9(Spacing) = 101
+	nameWidth := min(26, max(10, m.width-101))
+	const barWidth = 20
 
 	var b strings.Builder
 	b.Grow(len(m.sorted) * 256)
 
-	headerLine := fmt.Sprintf("  %-8s %-*s %-10s %-11s %-10s %-11s %-13s",
-		"ID", nameWidth, "NAME", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "DONE / PROG",
+	// Adjusted header to align exactly with the row's spacing:
+	// Notice the exact spacing around the PROGRESS (barWidth) and % (7)
+	headerLine := fmt.Sprintf("  %-8s %-*s %-10s %-11s %-10s %-11s %-13s %-*s%-7s",
+		"ID", nameWidth, "NAME", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "PIECES", barWidth+2, "PROGRESS", "%",
 	)
+
 	b.WriteString(tblHeaderStyle.Render(headerLine))
 	b.WriteByte('\n')
 
@@ -242,14 +244,24 @@ func (m *model) updateViewportContent() {
 
 		// Display 8-char short ID for readability while matching full or prefix ID
 		shortID := entry.id
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
+		if len(shortID) > 6 {
+			shortID = shortID[:6]
 		}
 
 		name := shortID
 		if snap.MetaInfo != nil && snap.MetaInfo.Name != "" {
 			name = snap.MetaInfo.Name
 		}
+
+		totalPieces := snap.MetaInfo.TotalPices
+		statusSymbol := "⏳ "
+		if snap.Paused {
+			statusSymbol = "⏸ "
+		} else if totalPieces > 0 && snap.Completed >= totalPieces {
+			statusSymbol = "💯 "
+		}
+
+		shortID = statusSymbol + shortID
 
 		isExpanded := m.expandID != "" && (entry.id == m.expandID || strings.HasPrefix(entry.id, m.expandID))
 		icon := "▸ "
@@ -260,6 +272,18 @@ func (m *model) updateViewportContent() {
 		}
 
 		piecesStr := fmt.Sprintf("%d / %d", snap.Completed, snap.Inprogress)
+
+		// Calculate 2-digit floating percentage
+		var pct float64
+		if totalPieces > 0 {
+			pct = (float64(snap.Completed) / float64(totalPieces)) * 100.0
+			if pct > 100.0 {
+				pct = 100.0
+			}
+		}
+
+		pctStr := fmt.Sprintf("%.2f%%", pct)
+		progressBar := renderProgressBar(snap.Completed, snap.Inprogress, totalPieces, barWidth)
 
 		b.WriteString(icon)
 		b.WriteString(idCol)
@@ -275,6 +299,10 @@ func (m *model) updateViewportContent() {
 		b.WriteString(upSpeedStyle.Render(padRight(formatSpeed(snap.UploadRate), 11)))
 		b.WriteByte(' ')
 		b.WriteString(progressStyle.Render(padRight(piecesStr, 13)))
+		b.WriteByte(' ')
+		b.WriteString(progressBar)
+		b.WriteString("  ")
+		b.WriteString(pctStyle.Render(padRight(pctStr, 7)))
 		b.WriteByte('\n')
 
 		if isExpanded {
@@ -386,6 +414,41 @@ func (m model) footerView() string {
 	return footerStyle.Width(m.width).Render(
 		m.textInput.View() + "\n" + helpLine,
 	)
+}
+
+func renderProgressBar(completed, inprogress, total int, barWidth int) string {
+	if total <= 0 {
+		return barRemainingStyle.Render(strings.Repeat("░", barWidth))
+	}
+
+	// completed values
+	if completed > total {
+		completed = total
+	}
+	if completed+inprogress > total {
+		inprogress = total - completed
+	}
+	// remaining := total - completed - inprogress
+
+	// Calculate character widths proportional to total pieces
+	cWidth := (completed * barWidth) / total
+	iWidth := (inprogress * barWidth) / total
+	rWidth := max(0, barWidth-cWidth-iWidth)
+
+	var sb strings.Builder
+	sb.Grow(barWidth * 6) // Preallocate buffer for ANSI escape sequences
+
+	if cWidth > 0 {
+		sb.WriteString(barCompleteStyle.Render(strings.Repeat("█", cWidth)))
+	}
+	if iWidth > 0 {
+		sb.WriteString(barInprogressStyle.Render(strings.Repeat("▒", iWidth)))
+	}
+	if rWidth > 0 {
+		sb.WriteString(barRemainingStyle.Render(strings.Repeat("░", rWidth)))
+	}
+
+	return sb.String()
 }
 
 func (m model) View() string {

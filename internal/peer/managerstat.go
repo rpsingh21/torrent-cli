@@ -23,6 +23,7 @@ type ManagerStat struct {
 	TotalErr     int
 	MetaInfo     *torrent.MetaInfo
 	PeerStat     map[string]StatSnapshot
+	Paused       bool
 }
 
 type ManagerStatSnapshot struct {
@@ -37,6 +38,7 @@ type ManagerStatSnapshot struct {
 	TotalErr     int
 	MetaInfo     *torrent.MetaInfo
 	PeerStat     map[string]StatSnapshot
+	Paused       bool
 }
 
 func NewManagerStat(metainfo *torrent.MetaInfo) *ManagerStat {
@@ -118,6 +120,20 @@ func (s *ManagerStat) removePeerStat(addr string, snap StatSnapshot) {
 	s.TotalErr += int(snap.Errors)
 }
 
+func (s *ManagerStat) UpdatePaused(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Paused = v
+}
+
+func (s *ManagerStat) IsPausedd() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.Paused
+}
+
 func (s *ManagerStat) Snapshot() ManagerStatSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -134,5 +150,6 @@ func (s *ManagerStat) Snapshot() ManagerStatSnapshot {
 		TotalErr:     s.TotalErr,
 		MetaInfo:     s.MetaInfo,
 		PeerStat:     maps.Clone(s.PeerStat),
+		Paused:       s.Paused,
 	}
 }
