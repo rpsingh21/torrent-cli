@@ -17,7 +17,7 @@ type FileStorage struct {
 	files    []*os.File
 }
 
-func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, error) {
+func NewFileStorage(metaInfo *torrent.MetaInfo) (*FileStorage, error) {
 
 	if len(metaInfo.Files) == 0 {
 		return nil, fmt.Errorf("Torrent contains no files")
@@ -43,7 +43,7 @@ func NewFileStorage(metaInfo *torrent.MetaInfo, baseDir string) (*FileStorage, e
 			return cleanup(fmt.Errorf("negative file length for %q", tf.Path))
 		}
 
-		filePath := filepath.Join(baseDir, tf.Path)
+		filePath := filepath.Join(metaInfo.Storepath, tf.Path)
 		if err := os.MkdirAll(filepath.Dir(filePath), 0775); err != nil {
 			return cleanup(fmt.Errorf("Create directory for %q: %w", tf.Path, err))
 		}

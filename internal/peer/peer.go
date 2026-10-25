@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -264,7 +265,7 @@ func (p *Peer) pendingCount() int {
 
 func (p *Peer) releaseAllPending() {
 	p.pendingMu.Lock()
-	log.Printf("peer %v releaseAllPending_called (%v)", p.Addr, len(p.pending))
+	slog.Info("relsease pending peers block", slog.String("peer", p.Addr), slog.Int("free_block", len(p.pending)))
 	pending := make([]requestKey, 0, len(p.pending))
 	for key := range p.pending {
 		pending = append(pending, key)

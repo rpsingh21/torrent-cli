@@ -19,8 +19,9 @@ func TestFileStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	metaInfo.Storepath = "./output" + "/" + metaInfo.Name
 
-	storage, err := NewFileStorage(metaInfo, "./output"+"/"+metaInfo.Name)
+	storage, err := NewFileStorage(metaInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +47,9 @@ func TestReadPiece(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse torrent file: %v", err)
 	}
+	metaInfo.Storepath = "./output" + "/" + metaInfo.Name
 
-	storage, err := NewFileStorage(metaInfo, "../../output"+"/"+metaInfo.Name)
+	storage, err := NewFileStorage(metaInfo)
 	if err != nil {
 		t.Fatalf("failed to initialize file storage: %v", err)
 	}
