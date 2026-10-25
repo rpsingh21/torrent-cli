@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rpsingh21/torrent-cli/internal/discovery/tracker"
@@ -20,7 +21,7 @@ func New() *Discovery {
 }
 
 func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerChan chan<- *peer.Peer) error {
-	interval := 900 * time.Second
+	interval := 1800 * time.Second
 	timer := time.NewTimer(1 * time.Second)
 	defer timer.Stop()
 
@@ -38,36 +39,29 @@ func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerC
 			return ctx.Err()
 
 		case <-timer.C:
-			var res *tracker.Response
-			var prs []string
-
-			for _, url := range metainfo.AnnounceList {
-				log.Printf("starting getting peer from: %v", url)
-				res = d.GetPeerAddresses(ctx, metainfo, url, "")
-
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				default:
-				}
-
-				if res != nil {
-					// break
-					prs = append(prs, res.Addrs...)
-				}
-			}
-
-			if prs != nil {
-				d.emitPeerAddressesToPeerManager(ctx, metainfo, prs, peerChan)
-				interval = time.Duration(res.Interval) * time.Second
-			}
-
+			AnnounceLoop(ctx, metainfo, peerChan)
 			timer.Reset(interval)
 		}
 	}
 }
 
-func (d *Discovery) GetPeerAddresses(ctx context.Context, metainfo *torrent.MetaInfo, url, event string) *tracker.Response {
+func AnnounceLoop(ctx context.Context, metainfo *torrent.MetaInfo, peerChan chan<- *peer.Peer) {
+	var wg sync.WaitGroup
+
+	for _, url := range metainfo.AnnounceList {
+		wg.Go(func() {
+			res := GetPeerAddresses(ctx, metainfo, url, "")
+
+			if res != nil && len(res.Addrs) > 0 {
+				emitPeerAddressesToPeerManager(ctx, metainfo, res.Addrs, peerChan)
+			}
+		})
+	}
+
+	wg.Wait()
+}
+
+func GetPeerAddresses(ctx context.Context, metainfo *torrent.MetaInfo, url, event string) *tracker.Response {
 	var res *tracker.Response
 	var err error
 
@@ -84,14 +78,10 @@ func (d *Discovery) GetPeerAddresses(ctx context.Context, metainfo *torrent.Meta
 	return res
 }
 
-func (d *Discovery) emitPeerAddressesToPeerManager(
+func emitPeerAddressesToPeerManager(
 	ctx context.Context, metainfo *torrent.MetaInfo, addrs []string, peerChan chan<- *peer.Peer) error {
 
 	for _, addr := range addrs {
-		if addr == "0.0.0.0:0" {
-			continue
-		}
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

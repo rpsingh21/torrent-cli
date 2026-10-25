@@ -11,7 +11,6 @@ import (
 	"net/netip"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
-	"github.com/rpsingh21/torrent-cli/internal/torrent"
 )
 
 // BEP-9: Extension Protocol for BitTorrent metadata.
@@ -24,9 +23,7 @@ import (
 const metadataPieceSize = 16 << 10
 const maxMetadataSize = 10 << 20
 
-func (p *Peer) DownloadMetadata(ctx context.Context, metaInfo *torrent.MetaInfo) ([]byte, error) {
-	p.metaInfo = metaInfo
-
+func (p *Peer) DownloadMetadata(ctx context.Context) ([]byte, error) {
 	dialer := net.Dialer{Timeout: REQUEST_TIMEOUT}
 
 	conn, err := dialer.DialContext(ctx, "tcp", p.Addr)

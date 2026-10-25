@@ -14,7 +14,7 @@ import (
 const (
 	MAX_PEERS             = 1000
 	MAX_REQUESTS_PER_PEER = 128
-	MIN_REQUESTS_PER_PEER = 16
+	MIN_REQUESTS_PER_PEER = 2
 	REQUEST_TIMEOUT       = 30 * time.Second
 	KEEPALIVE_TIMEOUT     = 2 * time.Minute
 	MAX_MESSAGE_LENGTH    = 2 << 20
