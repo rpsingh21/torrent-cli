@@ -83,7 +83,10 @@ func (a *App) Add(url string) (string, string, error) {
 	a.mu.Unlock()
 
 	go manager.Run(tCtx)
-	go a.discovery.Start(tCtx, metaInfo, manager.PeerChan)
+
+	if manager.MStat.IsCompleted() {
+		go a.discovery.Start(tCtx, metaInfo, manager.PeerChan)
+	}
 
 	return manager.Id[:8], metaInfo.Name, nil
 }
@@ -106,6 +109,11 @@ func (a *App) Pause(idPrefix string) (string, error) {
 	if cancel != nil {
 		cancel()
 	}
+
+	if err := entry.manager.MStat.MetaInfo.Save(a.appconfig.AppDir); err != nil {
+		slog.Error("failed to save metainfo", slog.String("id", entry.manager.Id), slog.String("err", err.Error()))
+	}
+
 	entry.manager.Close()
 	return fullID[:8], nil
 }
@@ -129,7 +137,7 @@ func (a *App) Resume(idPrefix string) (string, error) {
 	a.mu.Unlock()
 
 	go entry.manager.Run(tCtx)
-	if metaInfo != nil {
+	if metaInfo != nil && entry.manager.MStat.IsCompleted() {
 		go a.discovery.Start(tCtx, metaInfo, entry.manager.PeerChan)
 	}
 	return fullID[:8], nil
@@ -150,6 +158,11 @@ func (a *App) Remove(idPrefix string) (string, error) {
 	if entry.cancel != nil {
 		entry.cancel()
 	}
+
+	if err := entry.manager.MStat.MetaInfo.Remove(a.appconfig.AppDir); err != nil {
+		slog.Error("failed to remove metainfo", slog.String("id", entry.manager.Id), slog.String("err", err.Error()))
+	}
+
 	entry.manager.Close()
 	return fullID[:8], nil
 }
@@ -185,6 +198,11 @@ func (a *App) Close() {
 		if entry.cancel != nil {
 			entry.cancel()
 		}
+
+		if err := entry.manager.MStat.MetaInfo.Save(a.appconfig.AppDir); err != nil {
+			slog.Error("failed to save metainfo", slog.String("id", entry.manager.Id), slog.String("err", err.Error()))
+		}
+
 		entry.manager.Close()
 		delete(a.managers, id)
 	}

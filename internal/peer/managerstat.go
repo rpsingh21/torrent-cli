@@ -134,6 +134,13 @@ func (s *ManagerStat) IsPausedd() bool {
 	return s.Paused
 }
 
+func (s *ManagerStat) IsCompleted() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.Completed >= s.MetaInfo.TotalPices
+}
+
 func (s *ManagerStat) Snapshot() ManagerStatSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
