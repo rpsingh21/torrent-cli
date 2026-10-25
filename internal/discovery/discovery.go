@@ -14,8 +14,13 @@ import (
 
 // Discovery collects peers from trackers. DHT and PEX can be added as additional
 // discovery sources without changing PeerManager.
+type Discovery struct{}
 
-func Start(ctx context.Context, metainfo *torrent.MetaInfo, peerChan chan<- *peer.Peer) error {
+func New() *Discovery {
+	return &Discovery{}
+}
+
+func (d *Discovery) Start(ctx context.Context, metainfo *torrent.MetaInfo, peerChan chan<- *peer.Peer) error {
 	interval := 1800 * time.Second
 	timer := time.NewTimer(1 * time.Second)
 	defer timer.Stop()

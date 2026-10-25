@@ -464,7 +464,8 @@ func formatPeerAddr(addr string, width int) string {
 		return padRight(addr, width)
 	}
 
-	tailLen := min(11, width/2)
+	// Keep the last ":port" + last 4 hex chars of the IP intact
+	tailLen := min(11, width/2) // e.g., "7334]:65535" (11 chars)
 	headLen := width - tailLen - 1
 
 	return addr[:headLen] + "…" + addr[len(addr)-tailLen:]
