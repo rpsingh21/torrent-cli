@@ -8,6 +8,7 @@ type TFile struct {
 type MetaInfo struct {
 	AppId        [20]byte
 	AppPort      uint16
+	Storepath    string
 	Announce     string
 	AnnounceList []string
 	InfoHash     [20]byte

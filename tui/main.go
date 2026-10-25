@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -14,23 +13,25 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rpsingh21/torrent-cli/internal/app"
+	"github.com/rpsingh21/torrent-cli/internal/config"
+	"github.com/rpsingh21/torrent-cli/logger"
 	"github.com/rpsingh21/torrent-cli/tui/component"
 )
 
 func main() {
-	// 1. Redirect logs to file so background logs never corrupt the TUI alt-screen
-	logFile, err := os.OpenFile("torrent-cli.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err == nil {
-		defer logFile.Close()
-		log.SetOutput(logFile)
-		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, nil)))
+	// 1. LoadConfig and setup config
+	appconfig, err := config.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to loading config: %v\n", err)
 	}
+
+	logger.Setup(appconfig)
 
 	// 2. Root context listening for OS SIGINT / SIGTERM
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
-	engine, err := app.New()
+	engine, err := app.New(appconfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize torrent engine: %v\n", err)
 		os.Exit(1)

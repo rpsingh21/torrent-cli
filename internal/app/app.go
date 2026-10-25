@@ -3,20 +3,17 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/rpsingh21/torrent-cli/internal/config"
 	"github.com/rpsingh21/torrent-cli/internal/discovery"
 	"github.com/rpsingh21/torrent-cli/internal/peer"
 	"github.com/rpsingh21/torrent-cli/internal/piece"
 	"github.com/rpsingh21/torrent-cli/internal/storage"
 	"github.com/rpsingh21/torrent-cli/internal/torrent"
-)
-
-const (
-	MAX_PIECE_SIZE = 256 << 20
-	OUTPUT_DIR     = "./output/"
 )
 
 type managedTorrent struct {
@@ -27,17 +24,19 @@ type managedTorrent struct {
 
 type App struct {
 	Appid     [20]byte
+	appconfig *config.AppConfig
 	discovery *discovery.Discovery
 	mu        sync.RWMutex
 	ctx       context.Context
 	managers  map[string]*managedTorrent
 }
 
-func New() (*App, error) {
+func New(cnf *config.AppConfig) (*App, error) {
 	return &App{
-		Appid:    calculate_peer_id(),
-		managers: make(map[string]*managedTorrent),
-		ctx:      context.Background(),
+		Appid:     calculate_peer_id(),
+		appconfig: cnf,
+		managers:  make(map[string]*managedTorrent),
+		ctx:       context.Background(),
 	}, nil
 }
 
@@ -58,13 +57,15 @@ func (a *App) Add(url string) (string, string, error) {
 	baseCtx := a.ctx
 	a.mu.RUnlock()
 
-	metaInfo, err := getMetaInfo(baseCtx, url)
+	metaInfo, err := getMetaInfo(baseCtx, url, a.appconfig.DownloadDir)
 	if err != nil {
+		slog.Error("failed to get vaild metainfo", slog.String("url", url))
 		return "", "", fmt.Errorf("decode metainfo: %w", err)
 	}
 
 	manager, err := createManager(metaInfo)
 	if err != nil {
+		slog.Error("faild to create manager", slog.String("url", url))
 		return "", "", fmt.Errorf("create manager: %w", err)
 	}
 
@@ -194,7 +195,7 @@ func (a *App) Close() {
 func (a *App) load(ctx context.Context) {}
 
 func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
-	store, err := storage.NewFileStorage(metaInfo, filepath.Join(OUTPUT_DIR, metaInfo.Name))
+	store, err := storage.NewFileStorage(metaInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -203,19 +204,30 @@ func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
 	return peer.NewManager(metaInfo, pieceManager), nil
 }
 
-func getMetaInfo(ctx context.Context, url string) (*torrent.MetaInfo, error) {
+func getMetaInfo(ctx context.Context, url, downloaddir string) (*torrent.MetaInfo, error) {
+	var metainfo *torrent.MetaInfo
+	var err error
+
 	if strings.HasPrefix(url, "magnet") {
-		metaInfo, err := torrent.MetaInfoFromMagnetURL(url)
+		metainfo, err = torrent.MetaInfoFromMagnetURL(url)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := updateMetainfoFromPeers(ctx, metaInfo); err != nil {
-			return nil, fmt.Errorf("discover torrent metadata: %w", err)
-		}
-
-		return metaInfo, nil
+		err = updateMetainfoFromPeers(ctx, metainfo)
+	} else {
+		metainfo, err = torrent.NewTorrentDetailFromFile(url)
 	}
 
-	return torrent.NewTorrentDetailFromFile(url)
+	if err != nil {
+		return nil, err
+	}
+
+	storeDirName := strings.TrimSpace(metainfo.Name)
+	if storeDirName == "" {
+		return nil, fmt.Errorf("invalid torrent name: %v", storeDirName)
+	}
+
+	metainfo.Storepath = filepath.Join(downloaddir, storeDirName)
+	return metainfo, err
 }

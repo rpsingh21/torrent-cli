@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/rpsingh21/torrent-cli/internal/app"
+	"github.com/rpsingh21/torrent-cli/internal/config"
 	"github.com/rpsingh21/torrent-cli/internal/peer"
 )
 
@@ -51,7 +52,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app, err := app.New()
+	cnf, err := config.New()
+	if err != nil {
+		panic(err)
+	}
+
+	app, err := app.New(cnf)
 	var wg sync.WaitGroup
 
 	statChan := make(chan peer.ManagerStatSnapshot)

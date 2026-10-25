@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -100,7 +101,7 @@ func (m *Manager) addPeer(ctx context.Context, p *Peer, wg *sync.WaitGroup) {
 		// Capture final snapshot once before removing and potentially resetting
 		finalSnap := p.stat.Snapshot()
 		if err != nil && ctx.Err() == nil {
-			log.Printf("Peer %s failed: %v, Downloaded = %v KiB", p.Addr, err.Error(), finalSnap.Downloaded/1024)
+			slog.Error(err.Error(), slog.String("peer", p.Addr), slog.Int64("DByte", finalSnap.Downloaded))
 		}
 
 		m.removePeer(p, finalSnap)
