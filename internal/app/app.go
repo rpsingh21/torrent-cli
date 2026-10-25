@@ -26,8 +26,7 @@ type managedTorrent struct {
 }
 
 type App struct {
-	Appid     [20]byte
-	discovery *discovery.Discovery
+	Appid [20]byte
 
 	mu       sync.RWMutex
 	ctx      context.Context
@@ -36,10 +35,9 @@ type App struct {
 
 func New() (*App, error) {
 	return &App{
-		Appid:     calculate_peer_id(),
-		discovery: discovery.New(),
-		managers:  make(map[string]*managedTorrent),
-		ctx:       context.Background(),
+		Appid:    calculate_peer_id(),
+		managers: make(map[string]*managedTorrent),
+		ctx:      context.Background(),
 	}, nil
 }
 
@@ -86,7 +84,7 @@ func (a *App) Add(url string) (string, string, error) {
 	a.mu.Unlock()
 
 	go manager.Run(tCtx)
-	go a.discovery.Start(tCtx, metaInfo, manager.PeerChan)
+	go discovery.Start(tCtx, metaInfo, manager.PeerChan)
 
 	return manager.Id[:8], metaInfo.Name, nil
 }
@@ -133,7 +131,7 @@ func (a *App) Resume(idPrefix string) (string, error) {
 
 	go entry.manager.Run(tCtx)
 	if metaInfo != nil {
-		go a.discovery.Start(tCtx, metaInfo, entry.manager.PeerChan)
+		go discovery.Start(tCtx, metaInfo, entry.manager.PeerChan)
 	}
 	return fullID[:8], nil
 }

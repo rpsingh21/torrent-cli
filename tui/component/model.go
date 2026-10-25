@@ -303,12 +303,14 @@ func (m *model) renderChildPeerTable(b *strings.Builder, peers map[string]peer.S
 	}
 
 	slices.SortFunc(m.peerBuf, func(a, b peerEntry) int {
-		if c := cmp.Compare(b.stat.DownloadRate, a.stat.DownloadRate); c != 0 {
+		if c := cmp.Compare(b.stat.Downloaded, a.stat.Downloaded); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(b.stat.UploadRate, a.stat.UploadRate); c != 0 {
+
+		if c := cmp.Compare(b.stat.Uploaded, a.stat.Uploaded); c != 0 {
 			return c
 		}
+
 		return cmp.Compare(a.addr, b.addr)
 	})
 

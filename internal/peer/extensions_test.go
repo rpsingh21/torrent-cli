@@ -24,7 +24,7 @@ func TestExtendedHandshake(t *testing.T) {
 		t.Run(p.addr, func(t *testing.T) {
 			peer := NewPeer(p.addr, p.addr, metaInfo)
 
-			data, err := peer.DownloadMetadata(t.Context(), metaInfo)
+			data, err := peer.DownloadMetadata(t.Context())
 			if err != nil {
 				t.Logf("peer %s failed metadata download: %v", p.addr, err)
 				return
