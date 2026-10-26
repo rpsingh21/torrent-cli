@@ -222,18 +222,17 @@ func (m *model) updateViewportContent() {
 		return cmp.Compare(a.id, b.id)
 	})
 
-	// Fixed layout budget: 101 characters (excluding nameWidth)
-	// 2(Icon) + 8(ID) + 10(DN) + 11(D_SPD) + 10(UP) + 11(U_SPD) + 13(PCS) + 20(BAR) + 7(PCT) + 9(Spacing) = 101
-	nameWidth := min(26, max(10, m.width-101))
+	// Fixed layout budget: 102 characters (excluding nameWidth)
+	// 5(Icons) + 8(ID) + 10(DN) + 11(D_SPD) + 10(UP) + 11(U_SPD) + 13(PCS) + 20(BAR) + 7(PCT) + 7(Spacing)
+	nameWidth := min(26, max(10, m.width-102))
 	const barWidth = 20
 
 	var b strings.Builder
 	b.Grow(len(m.sorted) * 256)
 
-	// Adjusted header to align exactly with the row's spacing:
-	// Notice the exact spacing around the PROGRESS (barWidth) and % (7)
-	headerLine := fmt.Sprintf("  %-8s %-*s %-10s %-11s %-10s %-11s %-13s %-*s%-7s",
-		"ID", nameWidth, "NAME", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "PIECES", barWidth+2, "PROGRESS", "%",
+	// CHANGE: Adjusted %-2s to %-3s, and passed "   " (3 spaces) to match the 5-cell row prefix
+	headerLine := fmt.Sprintf(" %-3s %-8s %-*s %-10s %-11s %-10s %-11s %-13s %-*s%-7s",
+		"   ", "ID", nameWidth, "NAME", "DOWN", "↓ SPEED", "UP", "↑ SPEED", "PIECES", barWidth+2, "PROGRESS", "%",
 	)
 
 	b.WriteString(tblHeaderStyle.Render(headerLine))
@@ -244,8 +243,8 @@ func (m *model) updateViewportContent() {
 
 		// Display 8-char short ID for readability while matching full or prefix ID
 		shortID := entry.id
-		if len(shortID) > 6 {
-			shortID = shortID[:6]
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
 		}
 
 		name := shortID
@@ -256,12 +255,10 @@ func (m *model) updateViewportContent() {
 		totalPieces := snap.MetaInfo.TotalPices
 		statusSymbol := "⏳ "
 		if snap.Paused {
-			statusSymbol = "⏸ "
+			statusSymbol = "💤 "
 		} else if totalPieces > 0 && snap.Completed >= totalPieces {
 			statusSymbol = "💯 "
 		}
-
-		shortID = statusSymbol + shortID
 
 		isExpanded := m.expandID != "" && (entry.id == m.expandID || strings.HasPrefix(entry.id, m.expandID))
 		icon := "▸ "
@@ -286,6 +283,7 @@ func (m *model) updateViewportContent() {
 		progressBar := renderProgressBar(snap.Completed, snap.Inprogress, totalPieces, barWidth)
 
 		b.WriteString(icon)
+		b.WriteString(statusSymbol)
 		b.WriteString(idCol)
 		b.WriteByte(' ')
 		b.WriteString(rowNameStyle.Render(padRight(name, nameWidth)))

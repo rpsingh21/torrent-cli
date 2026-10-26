@@ -1,8 +1,11 @@
 package piece
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"fmt"
 	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/storage"
@@ -31,11 +34,18 @@ type Manager struct {
 }
 
 func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Storage) *Manager {
+	haveBitfield, err := bitfield.NewBitfield(len(meta.PieceHashes))
+	if err != nil {
+		panic(err)
+	}
+
 	pieces := make([]*Piece, len(meta.PieceHashes))
+	pieceBuf := make([]byte, meta.PieceLength)
 
 	for i, hash := range meta.PieceHashes {
 		remaining := meta.TotalSize - int64(i)*meta.PieceLength
 		pieceSize := int(min(meta.PieceLength, remaining))
+		buf := pieceBuf[:pieceSize]
 
 		pieces[i] = &Piece{
 			Index:           i,
@@ -43,11 +53,20 @@ func NewManager(meta *torrent.MetaInfo, strategy PickStrategy, store storage.Sto
 			HashV1:          hash,
 			downloadedBlock: 0,
 		}
-	}
 
-	haveBitfield, err := bitfield.NewBitfield(len(pieces))
-	if err != nil {
-		panic(err)
+		// In case of partial download
+		// check store contain valid data of this piece or not
+		if err := store.ReadPiece(i, buf); err != nil {
+			continue
+		}
+
+		actualHash := sha1.Sum(buf)
+		if !bytes.Equal(actualHash[:], hash[:]) {
+			slog.Error("Invalid piece data", slog.Int("piece id", i), slog.String("Tname", meta.Name))
+			continue
+		}
+
+		haveBitfield.SetIndex(i)
 	}
 
 	return &Manager{
@@ -67,7 +86,8 @@ func (m *Manager) GetStat() (int, int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.completed, m.inprogress
+	// return m.completed, m.inprogress
+	return m.Have.Count(), m.inprogress
 }
 
 // NextBlock atomically reserves a block for a peer.
