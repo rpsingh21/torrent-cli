@@ -102,7 +102,7 @@ func (b *Bitfield) Count() int {
 	}
 
 	if remaining := b.size & 7; remaining > 0 {
-		mask := (uint8(1) << remaining) - 1
+		mask := uint8(0xFF) << (8 - remaining)
 		total += bits.OnesCount8(b.words[fullWords] & mask)
 	}
 

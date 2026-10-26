@@ -39,4 +39,9 @@ var (
 	peerRowStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
 	peerErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	emptyStateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
+
+	barCompleteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))  // Emerald Green
+	barInprogressStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Amber / Yellow
+	barRemainingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("238")) // Muted Dark Gray
+	pctStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 )
