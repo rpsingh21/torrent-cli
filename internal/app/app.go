@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,10 +63,15 @@ func (a *App) Add(url string) (string, string, error) {
 		return "", "", fmt.Errorf("decode metainfo: %w", err)
 	}
 
+	return a.addManagerByMeatinfo(baseCtx, metaInfo)
+}
+
+func (a *App) addManagerByMeatinfo(baseCtx context.Context,
+	metaInfo *torrent.MetaInfo) (string, string, error) {
 	manager, err := createManager(metaInfo)
 	if err != nil {
-		slog.Error("faild to create manager", slog.String("url", url))
-		return "", "", fmt.Errorf("create manager: %w", err)
+		slog.Error(err.Error())
+		return "", "", fmt.Errorf("create manager failed: %w", err)
 	}
 
 	tCtx, cancel := context.WithCancel(baseCtx)
@@ -84,7 +90,7 @@ func (a *App) Add(url string) (string, string, error) {
 
 	go manager.Run(tCtx)
 
-	if manager.MStat.IsCompleted() {
+	if !manager.MStat.IsCompleted() {
 		go a.discovery.Start(tCtx, metaInfo, manager.PeerChan)
 	}
 
@@ -137,7 +143,7 @@ func (a *App) Resume(idPrefix string) (string, error) {
 	a.mu.Unlock()
 
 	go entry.manager.Run(tCtx)
-	if metaInfo != nil && entry.manager.MStat.IsCompleted() {
+	if metaInfo != nil && !entry.manager.MStat.IsCompleted() {
 		go a.discovery.Start(tCtx, metaInfo, entry.manager.PeerChan)
 	}
 	return fullID[:8], nil
@@ -208,7 +214,38 @@ func (a *App) Close() {
 	}
 }
 
-func (a *App) load(ctx context.Context) {}
+func (a *App) load(ctx context.Context) {
+	metainfoDir := filepath.Join(a.appconfig.AppDir, "metainfo")
+	listDir, err := os.ReadDir(metainfoDir)
+	if err != nil {
+		slog.Error(err.Error(),
+			slog.String("metainfoDir", metainfoDir))
+	}
+
+	for _, entity := range listDir {
+		if entity.IsDir() {
+			slog.Warn("unexpected dir found in metainfo dir",
+				slog.String("dir", entity.Name()),
+			)
+			continue
+		}
+
+		metainfo := &torrent.MetaInfo{}
+		if err := torrent.LoadMetainfo(
+			filepath.Join(metainfoDir, entity.Name()), metainfo,
+		); err != nil {
+			slog.Error(err.Error())
+			continue
+		}
+
+		// Update latest app id
+		metainfo.AppId = a.Appid
+
+		if _, _, err := a.addManagerByMeatinfo(ctx, metainfo); err != nil {
+			slog.Error(err.Error())
+		}
+	}
+}
 
 func createManager(metaInfo *torrent.MetaInfo) (*peer.Manager, error) {
 	store, err := storage.NewFileStorage(metaInfo)
