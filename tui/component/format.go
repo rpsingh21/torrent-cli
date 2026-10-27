@@ -63,3 +63,19 @@ func formatETA(seconds int64) string {
 	}
 	return fmt.Sprintf("%ds", s)
 }
+
+func formatPeerAddr(addr string, width int) string {
+	if len(addr) <= width {
+		return addr + strings.Repeat(" ", width-len(addr))
+	}
+
+	if width <= 10 {
+		return padRight(addr, width)
+	}
+
+	// Keep the last ":port" + last 4 hex chars of the IP intact
+	tailLen := min(11, width/2) // e.g., "7334]:65535" (11 chars)
+	headLen := width - tailLen - 1
+
+	return addr[:headLen] + "…" + addr[len(addr)-tailLen:]
+}
