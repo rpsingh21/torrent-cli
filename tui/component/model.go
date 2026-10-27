@@ -426,7 +426,6 @@ func renderProgressBar(completed, inprogress, total int, barWidth int) string {
 	if completed+inprogress > total {
 		inprogress = total - completed
 	}
-	// remaining := total - completed - inprogress
 
 	// Calculate character widths proportional to total pieces
 	cWidth := (completed * barWidth) / total
