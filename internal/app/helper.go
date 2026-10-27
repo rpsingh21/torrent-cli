@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"sync"
 
 	"github.com/rpsingh21/torrent-cli/internal/bencode"
 	"github.com/rpsingh21/torrent-cli/internal/discovery"
@@ -16,53 +15,67 @@ import (
 )
 
 func updateMetainfoFromPeers(pctx context.Context, metaInfo *torrent.MetaInfo) error {
-	var wg sync.WaitGroup
-
 	result := make(chan map[string]any, 1)
-	defer close(result)
 	peerChan := make(chan *peer.Peer, 16)
+
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	done := make(chan struct{})
-
-	wg.Go(func() {
+	// Discovery owns closing peerChan.
+	go func() {
+		defer close(peerChan)
 		discovery.AnnounceLoop(ctx, metaInfo, peerChan)
-		close(peerChan)
-	})
+	}()
 
-	go peerLoopForMetainfo(ctx, peerChan, result)
+	workersDone := make(chan struct{})
 
 	go func() {
-		wg.Wait()
-		close(done)
+		peerMetainfoWorkers(ctx, peerChan, result)
+		close(workersDone)
 	}()
 
 	select {
 	case info := <-result:
 		cancel()
+
 		if err := torrent.UpdateInfo(metaInfo, info); err != nil {
 			return fmt.Errorf("update metainfo: %w", err)
 		}
 
-		slog.Info("complete metadata dowload!")
+		slog.Info("complete metadata download")
 		return nil
 
-	case <-done:
-		return errors.New("all peers failed to get metainfo")
+	case <-workersDone:
+		// Prefer success if metadata arrived as workers finished.
+		select {
+		case info := <-result:
+			if err := torrent.UpdateInfo(metaInfo, info); err != nil {
+				return fmt.Errorf("update metainfo: %w", err)
+			}
+			slog.Info("complete metadata download")
+			return nil
+		default:
+			if err := pctx.Err(); err != nil {
+				return err
+			}
+			return errors.New("all peers failed to get metainfo")
+		}
 
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-pctx.Done():
+		return pctx.Err()
 	}
-
 }
 
-func peerLoopForMetainfo(ctx context.Context, peerChan <-chan *peer.Peer, result chan<- map[string]any) {
+func peerMetainfoWorkers(ctx context.Context, peerChan <-chan *peer.Peer, result chan<- map[string]any) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case peer := <-peerChan:
+		case peer, ok := <-peerChan:
+			if !ok {
+				return
+			}
+
 			go fetchMetaInfo(ctx, peer, result)
 		}
 	}

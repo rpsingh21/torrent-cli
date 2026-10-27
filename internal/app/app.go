@@ -241,9 +241,11 @@ func (a *App) load(ctx context.Context) {
 		// Update latest app id
 		metainfo.AppId = a.Appid
 
-		if _, _, err := a.addManagerByMeatinfo(ctx, metainfo); err != nil {
-			slog.Error(err.Error())
-		}
+		go func() {
+			if _, _, err := a.addManagerByMeatinfo(ctx, metainfo); err != nil {
+				slog.Error(err.Error())
+			}
+		}()
 	}
 }
 

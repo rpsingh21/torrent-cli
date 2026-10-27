@@ -53,7 +53,7 @@ func InitialModel(app *app.App) model {
 	ti.Placeholder = "/add <url|file> | /peers <id> | /pause <id> | /resume <id> | /remove <id> | /exit"
 	ti.Focus()
 	ti.Prompt = "❯ "
-	ti.CharLimit = 512
+	ti.CharLimit = 4096
 
 	return model{
 		app:       app,
@@ -426,7 +426,6 @@ func renderProgressBar(completed, inprogress, total int, barWidth int) string {
 	if completed+inprogress > total {
 		inprogress = total - completed
 	}
-	// remaining := total - completed - inprogress
 
 	// Calculate character widths proportional to total pieces
 	cWidth := (completed * barWidth) / total
@@ -514,20 +513,4 @@ func resumeTorrentCmd(a *app.App, id string) tea.Cmd {
 		}
 		return cmdResultMsg{status: fmt.Sprintf("▶ Resumed %s", shortID)}
 	}
-}
-
-func formatPeerAddr(addr string, width int) string {
-	if len(addr) <= width {
-		return addr + strings.Repeat(" ", width-len(addr))
-	}
-
-	if width <= 10 {
-		return padRight(addr, width)
-	}
-
-	// Keep the last ":port" + last 4 hex chars of the IP intact
-	tailLen := min(11, width/2) // e.g., "7334]:65535" (11 chars)
-	headLen := width - tailLen - 1
-
-	return addr[:headLen] + "…" + addr[len(addr)-tailLen:]
 }
